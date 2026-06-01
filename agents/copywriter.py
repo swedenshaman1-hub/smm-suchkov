@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "copywriter"
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Маша Лебедева, легендарный Telegram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта создания текстов, которые не просто читают — которыми зачитываются.
 

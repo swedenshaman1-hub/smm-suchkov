@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "humanizer"
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Даша Козлова, мастер очеловечивания текстов в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 

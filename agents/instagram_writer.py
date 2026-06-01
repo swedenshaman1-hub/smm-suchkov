@@ -6,7 +6,7 @@ import os
 from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Катя Миронова, Instagram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта в создании контента, который останавливает скролл.
 

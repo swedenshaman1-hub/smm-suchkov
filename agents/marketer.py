@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "marketer"
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Олег Савин, Маркетолог в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 

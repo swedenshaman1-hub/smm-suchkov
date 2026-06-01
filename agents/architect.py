@@ -10,7 +10,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "architect"
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор AI-команды в SMM-системе психолога Дмитрия Сучкова.
 

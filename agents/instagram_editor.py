@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "instagram_editor"
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Лена Волкова, элитный Instagram-редактор в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 18 лет работы с Instagram, 12 лет — с русскоязычной аудиторией.
 
