@@ -8,7 +8,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "strategist"
-MODEL = "gemini-1.5-flash"
+MODEL = "gemini-2.0-flash-lite"
 
 SYSTEM_PROMPT = """Ты — Артём Волков, Стратег-смысловик в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 
