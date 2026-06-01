@@ -2,13 +2,11 @@
 Агент 5: Публикатор
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "publisher_memory.json")
+AGENT_ID = "publisher"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Публикатор в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
@@ -58,21 +56,8 @@ SYSTEM_PROMPT = """Ты — Публикатор в SMM-команде псих�
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"publications": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, copywriter_output: str, strategy_output: str, api_key: str) -> dict:
-    memory = load_memory()
+    memory = memory_utils.load(AGENT_ID)
 
     user_msg = f"""ТЕМА: «{topic}»
 
@@ -84,10 +69,9 @@ def run(topic: str, copywriter_output: str, strategy_output: str, api_key: str) 
 
 Упакуй контент для публикации."""
 
-    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT, user_msg, max_tokens=3000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT + memory_utils.build_context(memory, topic), user_msg, max_tokens=3000, temperature=0.6)
 
-    memory["publications"].append({"topic": topic, "date": datetime.now().isoformat(), "result": result_text[:400]})
-    memory["publications"] = memory["publications"][-15:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, result_text[:300])
+    memory_utils.save(AGENT_ID, memory)
 
     return {"agent": "Публикатор", "topic": topic, "final_content": result_text}

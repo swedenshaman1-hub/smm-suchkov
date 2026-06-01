@@ -2,13 +2,12 @@
 Агент 1: Нина Соколова — Аналитик ЦА
 """
 
-import json
 import os
 from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "analyst_memory.json")
+AGENT_ID = "analyst"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Нина Соколова, Аналитик целевой аудитории в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
@@ -87,35 +86,9 @@ SYSTEM_PROMPT = """Ты — Нина Соколова, Аналитик целе
 - Только русский язык"""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"analyses": [], "lessons": [], "patterns": [], "golden_segments": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
-def build_memory_context(memory: dict) -> str:
-    context = ""
-    if memory.get("lessons"):
-        context += "\n\nМОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nУроки из прошлых анализов:\n"
-        for lesson in memory["lessons"][-5:]:
-            context += f"- {lesson}\n"
-    if memory.get("golden_segments"):
-        context += "\nВыявленные золотые сегменты:\n"
-        for seg in memory["golden_segments"][-3:]:
-            context += f"- {seg}\n"
-    return context
-
-
 def run(topic: str, api_key: str, feedback: str = None) -> dict:
-    memory = load_memory()
-    system = SYSTEM_PROMPT + build_memory_context(memory)
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Проведи глубокий анализ ЦА для темы контента: «{topic}»
 
@@ -133,16 +106,11 @@ def run(topic: str, api_key: str, feedback: str = None) -> dict:
         f"Ты провела анализ темы «{topic}». Выдели 1-2 ключевых инсайта о ЦА для запоминания.\nФормат: каждый с новой строки, начиная с '•'",
         max_tokens=400, temperature=0.5
     )
-    new_lessons = [
-        l.strip().lstrip("•").strip()
-        for l in reflection_text.strip().split("\n")
-        if l.strip() and "•" in l
-    ]
+    for line in reflection_text.strip().split("\n"):
+        if line.strip() and "•" in line:
+            memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "audience")
 
-    memory["analyses"].append({"topic": topic, "date": datetime.now().isoformat(), "result": result_text[:600]})
-    memory["lessons"].extend(new_lessons)
-    memory["lessons"] = memory["lessons"][-20:]
-    memory["analyses"] = memory["analyses"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, result_text[:300])
+    memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Нина (Аналитик ЦА)", "topic": topic, "analysis": result_text, "new_lessons": new_lessons}
+    return {"agent": "Нина (Аналитик ЦА)", "topic": topic, "analysis": result_text}

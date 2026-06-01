@@ -2,13 +2,11 @@
 Агент 4: Редактор
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "editor_memory.json")
+AGENT_ID = "editor"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Игорь Орлов, элитный редактор-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта работы с текстами для Telegram и Instagram.
@@ -89,29 +87,10 @@ SYSTEM_PROMPT = """Ты — Игорь Орлов, элитный редакто
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"reviews": [], "common_errors": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, analyst_output: str, strategy_output: str,
         copywriter_output: str, api_key: str, iteration: int = 1) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["common_errors"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nЧастые ошибки (следи):\n"
-        mem_context += "".join(f"- {e}\n" for e in memory["common_errors"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""ТЕМА: «{topic}»
 
@@ -136,16 +115,13 @@ def run(topic: str, analyst_output: str, strategy_output: str,
             f"Ты отклонил тексты по теме «{topic}». Выдели 1-2 типичных ошибки для памяти.\nФормат: каждая с '•'",
             max_tokens=300, temperature=0.5
         )
-        new_errors = [
-            e.strip().lstrip("•").strip()
-            for e in reflection_text.strip().split("\n")
-            if e.strip() and "•" in e
-        ]
-        memory["common_errors"].extend(new_errors)
-        memory["common_errors"] = memory["common_errors"][-15:]
+        for line in reflection_text.strip().split("\n"):
+            if line.strip() and "•" in line:
+                memory_utils.add_technique(memory, line.strip().lstrip("•").strip(), topic, successful=False)
+    else:
+        memory_utils.add_technique(memory, f"Принят с первого раза: {topic[:50]}", topic, successful=True)
 
-    memory["reviews"].append({"topic": topic, "date": datetime.now().isoformat(), "iteration": iteration, "accepted": accepted})
-    memory["reviews"] = memory["reviews"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, f"Итерация {iteration}, принято: {accepted}")
+    memory_utils.save(AGENT_ID, memory)
 
     return {"agent": "Редактор", "topic": topic, "iteration": iteration, "accepted": accepted, "review": result_text}

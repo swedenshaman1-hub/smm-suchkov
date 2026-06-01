@@ -2,13 +2,12 @@
 Агент 2: Стратег
 """
 
-import json
 import os
 from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "strategist_memory.json")
+AGENT_ID = "strategist"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Артём Волков, Стратег-смысловик в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
@@ -70,28 +69,9 @@ SYSTEM_PROMPT = """Ты — Артём Волков, Стратег-смысло
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"strategies": [], "lessons": [], "winning_angles": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nСтратегические уроки:\n"
-        mem_context += "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Тема: «{topic}»
 
@@ -111,16 +91,11 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
         f"Ты разработал стратегию для «{topic}». Выдели 1-2 ключевых решения для запоминания.\nФормат: каждое с '•'",
         max_tokens=300, temperature=0.5
     )
-    new_lessons = [
-        l.strip().lstrip("•").strip()
-        for l in reflection_text.strip().split("\n")
-        if l.strip() and "•" in l
-    ]
+    for line in reflection_text.strip().split("\n"):
+        if line.strip() and "•" in line:
+            memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "strategy")
 
-    memory["strategies"].append({"topic": topic, "date": datetime.now().isoformat(), "result": result_text[:500]})
-    memory["lessons"].extend(new_lessons)
-    memory["lessons"] = memory["lessons"][-20:]
-    memory["strategies"] = memory["strategies"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, result_text[:300])
+    memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Стратег", "topic": topic, "strategy": result_text, "new_lessons": new_lessons}
+    return {"agent": "Стратег", "topic": topic, "strategy": result_text}

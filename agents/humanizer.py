@@ -2,13 +2,11 @@
 Агент: Даша Козлова — Очеловечиватель текстов
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "humanizer_memory.json")
+AGENT_ID = "humanizer"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Даша Козлова, мастер очеловечивания текстов в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
@@ -78,28 +76,9 @@ SYSTEM_PROMPT = """Ты — Даша Козлова, мастер очелове
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"texts": [], "lessons": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nПаттерны которые убираешь:\n"
-        mem_context += "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Тема: «{topic}»
 
@@ -119,17 +98,15 @@ INSTAGRAM-ТЕКСТ (от Кати, одобрен Леной):
         f"Ты очеловечила тексты для «{topic}». Выдели 1-2 AI-паттерна который убрала — для памяти.\nФормат: каждый с '•'",
         max_tokens=200, temperature=0.5
     )
-    new_lessons = [
-        l.strip().lstrip("•").strip()
-        for l in reflection_text.strip().split("\n")
-        if l.strip() and "•" in l
-    ]
+    new_lessons = []
+    for line in reflection_text.strip().split("\n"):
+        if line.strip() and "•" in line:
+            lesson = line.strip().lstrip("•").strip()
+            new_lessons.append(lesson)
+            memory_utils.add_insight(memory, lesson, topic, "ai_pattern")
 
-    memory["texts"].append({"topic": topic, "date": datetime.now().isoformat()})
-    memory["lessons"].extend(new_lessons)
-    memory["lessons"] = memory["lessons"][-20:]
-    memory["texts"] = memory["texts"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, "Очеловечено")
+    memory_utils.save(AGENT_ID, memory)
 
     # Разделяем Telegram и Instagram из ответа
     tg_humanized = result_text

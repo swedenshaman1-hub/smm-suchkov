@@ -2,13 +2,11 @@
 Агент: Олег Савин — Маркетолог
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "marketer_memory.json")
+AGENT_ID = "marketer"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Олег Савин, Маркетолог в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
@@ -35,19 +33,16 @@ SYSTEM_PROMPT = """Ты — Олег Савин, Маркетолог в SMM-к�
 - Женщина 35-50, руководит командой/бизнесом, внешне успешна
 - Боль: перестала чувствовать смысл, тело даёт сбои, отношения страдают
 - Готова платить за результат, нужна конкретика и авторитет
-- Триггер: «больше не могу так жить»
 
 **Сегмент Б — «Ищущая перемен»:**
 - Женщина 28-40, в переходном периоде (развод/смена работы/кризис 30-35)
 - Боль: всё не то, ищет себя, пробовала коучей — разочарована
 - Нужна глубина, а не «позитивное мышление»
-- Триггер: конкретный случай, который узнаёт в контенте
 
 **Сегмент В — «Телесник»:**
 - Интересуется психосоматикой, практиками, телесной работой
 - Боль: не может «выключить голову», тело зажато, хронический стресс
 - Вход через «Танец Души» или телесный контент
-- Триггер: практический результат, описанный кем-то похожим
 
 ТВОИ ЗАДАЧИ (для каждой темы):
 1. **ЭТАП ВОРОНКИ** — к какому сегменту и этапу относится этот контент
@@ -63,28 +58,9 @@ SYSTEM_PROMPT = """Ты — Олег Савин, Маркетолог в SMM-к�
 - Только русский язык"""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"analyses": [], "lessons": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, analyst_output: str, strategy_output: str, api_key: str) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\n"
-        mem_context += "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Тема контента: «{topic}»
 
@@ -104,16 +80,11 @@ def run(topic: str, analyst_output: str, strategy_output: str, api_key: str) -> 
         f"Ты проанализировал тему «{topic}». Выдели 1-2 маркетинговых урока для запоминания.\nФормат: каждый с '•'",
         max_tokens=300, temperature=0.5
     )
-    new_lessons = [
-        l.strip().lstrip("•").strip()
-        for l in reflection_text.strip().split("\n")
-        if l.strip() and "•" in l
-    ]
+    for line in reflection_text.strip().split("\n"):
+        if line.strip() and "•" in line:
+            memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "marketing")
 
-    memory["analyses"].append({"topic": topic, "date": datetime.now().isoformat(), "result": result_text[:500]})
-    memory["lessons"].extend(new_lessons)
-    memory["lessons"] = memory["lessons"][-20:]
-    memory["analyses"] = memory["analyses"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, result_text[:300])
+    memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Олег (Маркетолог)", "topic": topic, "marketing": result_text, "new_lessons": new_lessons}
+    return {"agent": "Олег (Маркетолог)", "topic": topic, "marketing": result_text}

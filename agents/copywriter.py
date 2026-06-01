@@ -2,13 +2,11 @@
 Агент 3: Копирайтер
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "copywriter_memory.json")
+AGENT_ID = "copywriter"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Маша Лебедева, легендарный Telegram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта создания текстов, которые не просто читают — которыми зачитываются.
@@ -45,60 +43,30 @@ SYSTEM_PROMPT = """Ты — Маша Лебедева, легендарный Te
 
 1. РИТМИЧЕСКАЯ НЕПРЕДСКАЗУЕМОСТЬ:
 Длинное предложение с деталями → резкий короткий вывод → пауза → новая мысль.
-Выноси ключевые слова в отдельную строку. 1-3 слова в абзаце для драматического эффекта.
 
 2. ЖИВЫЕ СЕНСОРНЫЕ ДЕТАЛИ:
-Не «я понял важную вещь» — а «сижу с остывшим чаем, смотрю в окно, и тут меня как током ударило».
 Запахи, звуки, телесные ощущения, микродетали создают эффект присутствия.
 
 3. ЭМОЦИОНАЛЬНАЯ НЕПОСЛЕДОВАТЕЛЬНОСТЬ:
 Покажи сомнения, противоречия, смену настроения — это живой человек, не бот.
-«Хотя... не уверен», «Стоп, вру, не так было», «А может, я не прав».
 
-4. ЭМОЦИОНАЛЬНЫЕ ВКРАПЛЕНИЯ:
-Живые реакции в неожиданных местах посреди мысли.
-Ирония, самоирония, внезапная искренность: «Признаюсь, сам в это не верил».
-
-5. ПАТТЕРН УЗНАВАНИЯ:
+4. ПАТТЕРН УЗНАВАНИЯ:
 Читатель должен думать «это точно про меня» — используй конкретные ситуации ЦА из анализа Нины.
-Воспроизводи их внутренние диалоги слово в слово.
 
 ПРАВИЛА ТЕКСТА:
 - Telegram: 900-1800 символов (не меньше, не больше)
 - Первые 2 предложения — крючок, который не отпускает
-- Абзацы: 2-4 строки, с воздухом между ними
 - Никаких буллетов — только живой текст с абзацами
-- Эзотерика — не более 20%, всегда с объяснением механизма
-- Баланс: 70% продающая сила структуры + 30% живость и человечность
 - Заканчивай вопросом, инсайтом или мягким CTA
 
 НАПИШИ 2 ВАРИАНТА TELEGRAM-ПОСТА (разные форматы).
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"texts": [], "lessons": [], "successful_hooks": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(topic: str, analyst_output: str, strategy_output: str,
         api_key: str, editor_feedback: str = None, iteration: int = 1) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nУроки от Редактора:\n"
-        mem_context += "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Тема: «{topic}»
 
@@ -127,16 +95,12 @@ def run(topic: str, analyst_output: str, strategy_output: str,
             f"Ты написал тексты для «{topic}». Выдели 1-2 приёма для запоминания.\nФормат: каждый с '•'",
             max_tokens=300, temperature=0.5
         )
-        new_lessons = [
-            l.strip().lstrip("•").strip()
-            for l in reflection_text.strip().split("\n")
-            if l.strip() and "•" in l
-        ]
-        memory["lessons"].extend(new_lessons)
-        memory["lessons"] = memory["lessons"][-20:]
+        for line in reflection_text.strip().split("\n"):
+            if line.strip() and "•" in line:
+                memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "copywriting")
+                memory_utils.add_technique(memory, line.strip().lstrip("•").strip(), topic, successful=True)
 
-    memory["texts"].append({"topic": topic, "date": datetime.now().isoformat(), "iteration": iteration, "result": result_text[:500]})
-    memory["texts"] = memory["texts"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, f"Итерация {iteration}: {result_text[:200]}")
+    memory_utils.save(AGENT_ID, memory)
 
     return {"agent": "Копирайтер", "topic": topic, "iteration": iteration, "texts": result_text}

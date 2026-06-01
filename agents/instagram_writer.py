@@ -2,13 +2,10 @@
 Агент: Катя Миронова — Instagram-копирайтер
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "instagram_writer_memory.json")
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Катя Миронова, Instagram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта в создании контента, который останавливает скролл.
@@ -212,32 +209,13 @@ SYSTEM_PROMPT = """Ты — Катя Миронова, Instagram-копирай�
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"texts": [], "lessons": [], "successful_hooks": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
+AGENT_ID = "instagram_writer"
 
 
 def run(topic: str, analyst_output: str, strategy_output: str, marketing_output: str,
         api_key: str, editor_feedback: str = None, iteration: int = 1) -> dict:
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"] or memory["successful_hooks"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\n"
-        if memory["successful_hooks"]:
-            mem_context += "Удачные крючки:\n" + "".join(f"- {h}\n" for h in memory["successful_hooks"][-5:])
-        if memory["lessons"]:
-            mem_context += "Уроки от Игоря:\n" + "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     user_msg = f"""Тема: «{topic}»
 
@@ -267,16 +245,12 @@ def run(topic: str, analyst_output: str, strategy_output: str, marketing_output:
             f"Ты написала Instagram-контент для «{topic}». Выдели 1-2 приёма для запоминания.\nФормат: каждый с '•'",
             max_tokens=300, temperature=0.5
         )
-        new_lessons = [
-            l.strip().lstrip("•").strip()
-            for l in reflection_text.strip().split("\n")
-            if l.strip() and "•" in l
-        ]
-        memory["lessons"].extend(new_lessons)
-        memory["lessons"] = memory["lessons"][-20:]
+        for line in reflection_text.strip().split("\n"):
+            if line.strip() and "•" in line:
+                memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "instagram")
+                memory_utils.add_technique(memory, line.strip().lstrip("•").strip(), topic, successful=True)
 
-    memory["texts"].append({"topic": topic, "date": datetime.now().isoformat(), "iteration": iteration})
-    memory["texts"] = memory["texts"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, topic, f"IG итерация {iteration}")
+    memory_utils.save(AGENT_ID, memory)
 
     return {"agent": "Катя (Instagram)", "topic": topic, "iteration": iteration, "texts": result_text}

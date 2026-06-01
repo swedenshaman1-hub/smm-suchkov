@@ -2,13 +2,11 @@
 Агент: Виктор Самойлов — Архитектор оффера (Hormozi $100M)
 """
 
-import json
 import os
-from datetime import datetime
-from google import genai
 from agents.gemini_utils import gemini_call
+from agents import memory_utils
 
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "offer_architect_memory.json")
+AGENT_ID = "offer_architect"
 MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Виктор Самойлов, Архитектор неотразимых офферов в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 20 лет в маркетинге и психологии продаж.
@@ -82,33 +80,9 @@ SYSTEM_PROMPT = """Ты — Виктор Самойлов, Архитектор 
 Только русский язык."""
 
 
-def load_memory():
-    if os.path.exists(MEMORY_PATH):
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"offers": [], "lessons": []}
-
-
-def save_memory(memory: dict):
-    os.makedirs(os.path.dirname(MEMORY_PATH), exist_ok=True)
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-
 def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> dict:
-    """
-    product: название продукта или оффера (напр. «Личная сессия», «Курс GREM», «Танец Души»)
-    analyst_output: анализ ЦА от Нины
-    focus: дополнительный фокус или уточнение (опционально)
-    """
-    memory = load_memory()
-
-    mem_context = ""
-    if memory["lessons"]:
-        mem_context = "\n\nТВОЯ НАКОПЛЕННАЯ ПАМЯТЬ:\nУроки из прошлых офферов:\n"
-        mem_context += "".join(f"- {l}\n" for l in memory["lessons"][-5:])
-
-    system = SYSTEM_PROMPT + mem_context
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, product)
 
     user_msg = f"""Создай полный оффер для продукта: «{product}»
 
@@ -127,17 +101,15 @@ def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> d
         f"Ты создал оффер для «{product}». Выдели 1-2 ключевых приёма которые сделали оффер сильным.\nФормат: каждый с '•'",
         max_tokens=200, temperature=0.5
     )
-    new_lessons = [
-        l.strip().lstrip("•").strip()
-        for l in reflection_text.strip().split("\n")
-        if l.strip() and "•" in l
-    ]
+    new_lessons = []
+    for line in reflection_text.strip().split("\n"):
+        if line.strip() and "•" in line:
+            lesson = line.strip().lstrip("•").strip()
+            new_lessons.append(lesson)
+            memory_utils.add_insight(memory, lesson, product, "offer")
 
-    memory["offers"].append({"product": product, "date": datetime.now().isoformat(), "result": result_text[:500]})
-    memory["lessons"].extend(new_lessons)
-    memory["lessons"] = memory["lessons"][-20:]
-    memory["offers"] = memory["offers"][-10:]
-    save_memory(memory)
+    memory_utils.add_topic(memory, product, result_text[:300])
+    memory_utils.save(AGENT_ID, memory)
 
     return {
         "agent": "Виктор (Архитектор оффера)",
