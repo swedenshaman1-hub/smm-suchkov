@@ -5,10 +5,11 @@
 import json
 import os
 from datetime import datetime
-from groq import Groq
+import google.generativeai as genai
+from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "publisher_memory.json")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Публикатор в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 
@@ -71,7 +72,6 @@ def save_memory(memory: dict):
 
 
 def run(topic: str, copywriter_output: str, strategy_output: str, api_key: str) -> dict:
-    client = Groq(api_key=api_key)
     memory = load_memory()
 
     user_msg = f"""ТЕМА: «{topic}»
@@ -84,16 +84,7 @@ def run(topic: str, copywriter_output: str, strategy_output: str, api_key: str) 
 
 Упакуй контент для публикации."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg}
-        ],
-        max_tokens=3000,
-        temperature=0.6
-    )
-    result_text = response.choices[0].message.content
+    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT, user_msg, max_tokens=3000, temperature=0.6)
 
     memory["publications"].append({"topic": topic, "date": datetime.now().isoformat(), "result": result_text[:400]})
     memory["publications"] = memory["publications"][-15:]

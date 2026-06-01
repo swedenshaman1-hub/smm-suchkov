@@ -5,10 +5,11 @@
 import json
 import os
 from datetime import datetime
-from groq import Groq
+import google.generativeai as genai
+from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "humanizer_memory.json")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Даша Козлова, мастер очеловечивания текстов в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 
@@ -91,7 +92,6 @@ def save_memory(memory: dict):
 
 
 def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
-    client = Groq(api_key=api_key)
     memory = load_memory()
 
     mem_context = ""
@@ -112,29 +112,16 @@ INSTAGRAM-ТЕКСТ (от Кати, одобрен Леной):
 Очеловечь оба текста — добавь жизнь, убери AI-паттерны, сохрани все смыслы и структуру.
 Выдай оба текста полностью."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg}
-        ],
-        max_tokens=4000,
-        temperature=0.85
-    )
-    result_text = response.choices[0].message.content
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85)
 
-    reflection = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Ты очеловечила тексты для «{topic}». Выдели 1-2 AI-паттерна который убрала — для памяти.\nФормат: каждый с '•'"}
-        ],
-        max_tokens=200,
-        temperature=0.5
+    reflection_text = gemini_call(
+        api_key, MODEL, system,
+        f"Ты очеловечила тексты для «{topic}». Выдели 1-2 AI-паттерна который убрала — для памяти.\nФормат: каждый с '•'",
+        max_tokens=200, temperature=0.5
     )
     new_lessons = [
         l.strip().lstrip("•").strip()
-        for l in reflection.choices[0].message.content.strip().split("\n")
+        for l in reflection_text.strip().split("\n")
         if l.strip() and "•" in l
     ]
 

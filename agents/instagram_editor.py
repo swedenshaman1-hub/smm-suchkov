@@ -5,10 +5,11 @@
 import json
 import os
 from datetime import datetime
-from groq import Groq
+import google.generativeai as genai
+from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "instagram_editor_memory.json")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Лена Волкова, элитный Instagram-редактор в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 18 лет работы с Instagram, 12 лет — с русскоязычной аудиторией.
 
@@ -93,7 +94,6 @@ def save_memory(memory: dict):
 
 def run(topic: str, analyst_output: str, strategy_output: str,
         instagram_output: str, api_key: str, iteration: int = 1) -> dict:
-    client = Groq(api_key=api_key)
     memory = load_memory()
 
     mem_context = ""
@@ -116,32 +116,19 @@ INSTAGRAM-КОНТЕНТ КАТИ (итерация {iteration}):
 
 Проверь все 4 формата. Вынеси решение."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg}
-        ],
-        max_tokens=1500,
-        temperature=0.6
-    )
-    result_text = response.choices[0].message.content
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=1500, temperature=0.6)
 
     accepted = "РЕШЕНИЕ INSTAGRAM: ПРИНЯТО" in result_text and "РЕШЕНИЕ INSTAGRAM: ОТКЛОНЕНО" not in result_text
 
     if not accepted:
-        reflection = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"Ты отклонила Instagram-контент по теме «{topic}». Выдели 1-2 типичных ошибки для памяти.\nФормат: каждая с '•'"}
-            ],
-            max_tokens=200,
-            temperature=0.5
+        reflection_text = gemini_call(
+            api_key, MODEL, system,
+            f"Ты отклонила Instagram-контент по теме «{topic}». Выдели 1-2 типичных ошибки для памяти.\nФормат: каждая с '•'",
+            max_tokens=200, temperature=0.5
         )
         new_errors = [
             e.strip().lstrip("•").strip()
-            for e in reflection.choices[0].message.content.strip().split("\n")
+            for e in reflection_text.strip().split("\n")
             if e.strip() and "•" in e
         ]
         memory["common_errors"].extend(new_errors)

@@ -5,10 +5,11 @@
 import json
 import os
 from datetime import datetime
-from groq import Groq
+import google.generativeai as genai
+from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "analyst_memory.json")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Нина Соколова, Аналитик целевой аудитории в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»).
 
@@ -113,7 +114,6 @@ def build_memory_context(memory: dict) -> str:
 
 
 def run(topic: str, api_key: str, feedback: str = None) -> dict:
-    client = Groq(api_key=api_key)
     memory = load_memory()
     system = SYSTEM_PROMPT + build_memory_context(memory)
 
@@ -126,30 +126,16 @@ def run(topic: str, api_key: str, feedback: str = None) -> dict:
     if feedback:
         user_msg += f"\n\nВАЖНО: Другой агент прокомментировал:\n{feedback}\nУчти и скорректируй."
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg}
-        ],
-        max_tokens=3000,
-        temperature=0.7
-    )
-    result_text = response.choices[0].message.content
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.7)
 
-    # Рефлексия
-    reflection = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Ты провела анализ темы «{topic}». Выдели 1-2 ключевых инсайта о ЦА для запоминания.\nФормат: каждый с новой строки, начиная с '•'"}
-        ],
-        max_tokens=400,
-        temperature=0.5
+    reflection_text = gemini_call(
+        api_key, MODEL, system,
+        f"Ты провела анализ темы «{topic}». Выдели 1-2 ключевых инсайта о ЦА для запоминания.\nФормат: каждый с новой строки, начиная с '•'",
+        max_tokens=400, temperature=0.5
     )
     new_lessons = [
         l.strip().lstrip("•").strip()
-        for l in reflection.choices[0].message.content.strip().split("\n")
+        for l in reflection_text.strip().split("\n")
         if l.strip() and "•" in l
     ]
 

@@ -14,7 +14,7 @@ load_dotenv()
 from agents import analyst, strategist, copywriter, editor, publisher
 from agents import marketer, instagram_writer, instagram_editor, humanizer, offer_architect
 
-API_KEY = os.getenv("GROQ_API_KEY", "")
+API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 st.set_page_config(
     page_title="SMM-команда | Дмитрий Сучков",
@@ -137,7 +137,7 @@ with col1:
     )
 
     if not API_KEY:
-        st.error("GROQ_API_KEY не найден в .env")
+        st.error("GEMINI_API_KEY не найден в .env")
 
 with col2:
 
@@ -269,18 +269,12 @@ Instagram-текст: {final_ig[:400]}
 
 Составь краткий план публикаций: когда и в каком порядке публиковать на Telegram и Instagram, чтобы получить максимальный охват и вовлечённость."""
 
-                from groq import Groq
-                groq_client = Groq(api_key=API_KEY)
-                rita_resp = groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "Ты — Рита Захарова, СММ-менеджер. Практик, думаешь о регулярности, охватах и плане публикаций. Только русский язык."},
-                        {"role": "user", "content": smm_prompt}
-                    ],
-                    max_tokens=800,
-                    temperature=0.6
+                from agents.gemini_utils import gemini_call as _gc
+                r_smm = _gc(
+                    API_KEY, "gemini-2.0-flash",
+                    "Ты — Рита Захарова, СММ-менеджер. Практик, думаешь о регулярности, охватах и плане публикаций. Только русский язык.",
+                    smm_prompt, max_tokens=800, temperature=0.6
                 )
-                r_smm = rita_resp.choices[0].message.content
                 s.update(label="✅ Рита Захарова — план готов", state="complete")
                 if show_process:
                     st.markdown(f'<div class="agent-block"><div class="agent-name">📊 Рита Захарова (СММ-менеджер)</div>{r_smm}</div>', unsafe_allow_html=True)

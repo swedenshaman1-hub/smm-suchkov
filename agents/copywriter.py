@@ -5,10 +5,11 @@
 import json
 import os
 from datetime import datetime
-from groq import Groq
+import google.generativeai as genai
+from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "copywriter_memory.json")
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Ты — Маша Лебедева, легендарный Telegram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта создания текстов, которые не просто читают — которыми зачитываются.
 
@@ -90,7 +91,6 @@ def save_memory(memory: dict):
 
 def run(topic: str, analyst_output: str, strategy_output: str,
         api_key: str, editor_feedback: str = None, iteration: int = 1) -> dict:
-    client = Groq(api_key=api_key)
     memory = load_memory()
 
     mem_context = ""
@@ -119,30 +119,17 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 
 Перепиши оба варианта с учётом всех замечаний — сохрани глубину, исправь то что отмечено."""
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg}
-        ],
-        max_tokens=3000,
-        temperature=0.8
-    )
-    result_text = response.choices[0].message.content
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.8)
 
     if not editor_feedback:
-        reflection = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": f"Ты написал тексты для «{topic}». Выдели 1-2 приёма для запоминания.\nФормат: каждый с '•'"}
-            ],
-            max_tokens=300,
-            temperature=0.5
+        reflection_text = gemini_call(
+            api_key, MODEL, system,
+            f"Ты написал тексты для «{topic}». Выдели 1-2 приёма для запоминания.\nФормат: каждый с '•'",
+            max_tokens=300, temperature=0.5
         )
         new_lessons = [
             l.strip().lstrip("•").strip()
-            for l in reflection.choices[0].message.content.strip().split("\n")
+            for l in reflection_text.strip().split("\n")
             if l.strip() and "•" in l
         ]
         memory["lessons"].extend(new_lessons)
