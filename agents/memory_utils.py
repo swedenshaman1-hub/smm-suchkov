@@ -1,15 +1,30 @@
 """
-Система глубокой памяти для агентов SMM-команды.
-Каждый агент имеет структурированную, растущую память без произвольных ограничений.
+Система глубокой памяти агентов — хранение в Supabase (PostgreSQL).
+Fallback на локальные JSON-файлы если Supabase недоступен.
 """
 
 import json
 import os
 from datetime import datetime
-from typing import Optional
-
 
 MEMORY_BASE = os.path.join(os.path.dirname(__file__), "..", "memory")
+
+# Supabase клиент — инициализируется один раз
+_supabase_client = None
+
+def _get_client():
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_KEY", "")
+    if url and key:
+        try:
+            from supabase import create_client
+            _supabase_client = create_client(url, key)
+        except Exception:
+            _supabase_client = None
+    return _supabase_client
 
 
 def _path(agent_id: str) -> str:
@@ -17,6 +32,15 @@ def _path(agent_id: str) -> str:
 
 
 def load(agent_id: str) -> dict:
+    client = _get_client()
+    if client:
+        try:
+            res = client.table("agent_memory").select("memory").eq("agent_id", agent_id).execute()
+            if res.data:
+                return res.data[0]["memory"]
+        except Exception:
+            pass
+    # Fallback — локальный файл
     path = _path(agent_id)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -25,9 +49,21 @@ def load(agent_id: str) -> dict:
 
 
 def save(agent_id: str, memory: dict):
-    os.makedirs(MEMORY_BASE, exist_ok=True)
     memory["profile"]["last_active"] = datetime.now().isoformat()
     memory["profile"]["sessions_count"] = memory["profile"].get("sessions_count", 0) + 1
+
+    client = _get_client()
+    if client:
+        try:
+            client.table("agent_memory").upsert({
+                "agent_id": agent_id,
+                "memory": memory
+            }).execute()
+            return
+        except Exception:
+            pass
+    # Fallback — локальный файл
+    os.makedirs(MEMORY_BASE, exist_ok=True)
     with open(_path(agent_id), "w", encoding="utf-8") as f:
         json.dump(memory, f, ensure_ascii=False, indent=2)
 
@@ -50,14 +86,12 @@ def _empty_memory() -> dict:
 
 
 def add_insight(memory: dict, text: str, topic: str, category: str = "general"):
-    """Добавить инсайт/урок. Без жёсткого лимита — хранится до 200 инсайтов."""
     memory["insights"].append({
         "text": text,
         "topic": topic,
         "category": category,
         "date": datetime.now().isoformat()
     })
-    # Храним 200 последних инсайтов — агент постоянно растёт
     memory["insights"] = memory["insights"][-200:]
 
 
@@ -90,8 +124,7 @@ def add_feedback(memory: dict, from_agent: str, feedback: str, topic: str):
     memory["team_feedback"] = memory["team_feedback"][-50:]
 
 
-def get_relevant_insights(memory: dict, topic: str, n: int = 8) -> list[str]:
-    """Возвращает наиболее релевантные инсайты по ключевым словам темы."""
+def get_relevant_insights(memory: dict, topic: str, n: int = 8) -> list:
     topic_words = set(topic.lower().split())
     scored = []
     for insight in memory["insights"]:
@@ -100,17 +133,14 @@ def get_relevant_insights(memory: dict, topic: str, n: int = 8) -> list[str]:
         score = len(topic_words & insight_words) + len(topic_words & topic_words_in_insight) * 2
         scored.append((score, insight["text"]))
     scored.sort(key=lambda x: x[0], reverse=True)
-    # Возвращаем топ-n релевантных + всегда берём последние 3
     top = [text for _, text in scored[:n]]
     recent = [i["text"] for i in memory["insights"][-3:]]
-    combined = list(dict.fromkeys(top + recent))  # убираем дубли, сохраняем порядок
+    combined = list(dict.fromkeys(top + recent))
     return combined[:n]
 
 
 def build_context(memory: dict, topic: str) -> str:
-    """Формирует строку контекста памяти для вставки в системный промпт."""
     lines = []
-
     count = memory["profile"].get("sessions_count", 0)
     if count > 0:
         lines.append(f"\n\n═══ ТВОЯ ПАМЯТЬ ({count} сессий) ═══")
@@ -138,11 +168,5 @@ def build_context(memory: dict, topic: str) -> str:
         lines.append("\nОТЗЫВЫ КОМАНДЫ:")
         for fb in feedback:
             lines.append(f"[{fb['from']}]: {fb['feedback']}")
-
-    personality = memory["profile"].get("personality_notes", [])
-    if personality:
-        lines.append("\nМОЯ ЭВОЛЮЦИЯ (как я изменился):")
-        for note in personality[-3:]:
-            lines.append(f"→ {note}")
 
     return "\n".join(lines)
