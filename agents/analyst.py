@@ -5,7 +5,7 @@
 import json
 import os
 from datetime import datetime
-import google.generativeai as genai
+from google import genai
 from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "analyst_memory.json")
