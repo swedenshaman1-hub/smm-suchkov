@@ -1,6 +1,6 @@
 """
 SMM-команда Дмитрия Сучкова
-11 агентов | Telegram + Instagram | Оффер | Groq API
+12 агентов | Telegram + Instagram | Оффер | Архитектор
 """
 
 import streamlit as st
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agents import analyst, strategist, copywriter, editor, publisher
-from agents import marketer, instagram_writer, instagram_editor, humanizer, offer_architect
+from agents import marketer, instagram_writer, instagram_editor, humanizer, offer_architect, architect
 
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 
@@ -51,7 +51,7 @@ st.caption("GREM · Танец Души · 11 агентов · Telegram + Insta
 # ── Режим работы ────────────────────────────────────────────────────────────
 app_mode = st.radio(
     "Режим работы:",
-    ["📝 Контент (Telegram + Instagram)", "🏆 Создать оффер"],
+    ["📝 Контент (Telegram + Instagram)", "🏆 Создать оффер", "🏗 Аудит команды"],
     horizontal=True,
     label_visibility="collapsed"
 )
@@ -335,6 +335,7 @@ Instagram-текст: {final_ig[:400]}
 📊 **Рита Захарова** — составляет план публикаций
 📤 **Соня Крылова** — финальная упаковка с хэштегами и временем
 🏆 **Виктор Самойлов** — архитектор оффера (режим «Создать оффер»)
+🏗 **Алекс Громов** — архитектор команды (режим «Аудит команды»)
 
 Каждый агент накапливает опыт и становится лучше с каждой задачей.
             """)
@@ -342,7 +343,7 @@ Instagram-текст: {final_ig[:400]}
     # ════════════════════════════════════════════════════════════
     # РЕЖИМ 2 — ОФФЕР
     # ════════════════════════════════════════════════════════════
-    else:
+    elif app_mode == "🏆 Создать оффер":
         st.subheader("🏆 Архитектор оффера — Виктор Самойлов")
         st.caption("Методология Алекса Хормози ($100M Offers) × продукты Дмитрия Сучкова")
 
@@ -396,6 +397,59 @@ Instagram-текст: {final_ig[:400]}
                 "💾 Скачать Паспорт оффера",
                 data=r_offer["offer"],
                 file_name=f"offer_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+    # ════════════════════════════════════════════════════════════
+    # РЕЖИМ 3 — АУДИТ КОМАНДЫ
+    # ════════════════════════════════════════════════════════════
+    elif app_mode == "🏗 Аудит команды":
+        st.subheader("🏗 Алекс Громов — Архитектор команды")
+        st.markdown(
+            "Алекс читает память всех 12 агентов, находит слабые места "
+            "и даёт конкретные улучшения промптов."
+        )
+
+        col1, col2 = st.columns([2, 1])
+        with col2:
+            apply_fixes = st.toggle(
+                "⚡ Применить улучшения автоматически",
+                value=False,
+                help="Алекс сам перепишет промпты слабых агентов в файлах"
+            )
+
+        audit_btn = st.button(
+            "🏗 Запустить аудит команды",
+            type="primary",
+            use_container_width=True,
+            disabled=not API_KEY
+        )
+
+        if audit_btn:
+            with st.status("🏗 Алекс анализирует команду...", expanded=True) as s:
+                st.write("Читает память всех агентов...")
+                r_audit = architect.run(API_KEY, apply_fixes=apply_fixes)
+                label = "✅ Аудит завершён"
+                if r_audit["applied_fixes"]:
+                    label += f" | Улучшены: {', '.join(r_audit['applied_fixes'])}"
+                s.update(label=label, state="complete")
+
+            st.markdown(
+                f'<div class="agent-block final"><div class="agent-name">🏗 Алекс Громов (Архитектор)</div>'
+                f'{r_audit["analysis"]}</div>',
+                unsafe_allow_html=True
+            )
+
+            if r_audit["applied_fixes"]:
+                st.success(f"⚡ Автоматически улучшены агенты: {', '.join(r_audit['applied_fixes'])}")
+                st.info("Изменения применены в файлы. Перезапусти приложение чтобы агенты заработали с новыми промптами.")
+
+            st.divider()
+            st.download_button(
+                "💾 Скачать отчёт аудита",
+                data=r_audit["analysis"],
+                file_name=f"audit_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
