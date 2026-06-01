@@ -9,7 +9,7 @@ from google import genai
 from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "instagram_writer_memory.json")
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Катя Миронова, Instagram-копирайтер в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 25 лет опыта в создании контента, который останавливает скролл.
 

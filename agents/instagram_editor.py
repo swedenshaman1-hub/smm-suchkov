@@ -9,7 +9,7 @@ from google import genai
 from agents.gemini_utils import gemini_call
 
 MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "instagram_editor_memory.json")
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-1.5-flash"
 
 SYSTEM_PROMPT = """Ты — Лена Волкова, элитный Instagram-редактор в SMM-команде психолога Дмитрия Сучкова (метод GREM, практика «Танец Души»). 18 лет работы с Instagram, 12 лет — с русскоязычной аудиторией.
 

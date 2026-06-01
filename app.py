@@ -271,7 +271,7 @@ Instagram-текст: {final_ig[:400]}
 
                 from agents.gemini_utils import gemini_call as _gc
                 r_smm = _gc(
-                    API_KEY, "gemini-2.0-flash",
+                    API_KEY, "gemini-1.5-flash",
                     "Ты — Рита Захарова, СММ-менеджер. Практик, думаешь о регулярности, охватах и плане публикаций. Только русский язык.",
                     smm_prompt, max_tokens=800, temperature=0.6
                 )
