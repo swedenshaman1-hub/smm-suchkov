@@ -98,28 +98,34 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
         return
 
-    await update.message.reply_text(f"🚀 Запускаю команду для темы:\n«{topic}»\n\nЭто займёт 2-4 минуты...")
+    await update.message.reply_text(
+        f"👥 *Команда берётся за тему:*\n«{topic}»\n\n_Агенты работают последовательно, это займёт 2–4 минуты..._",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
     try:
         # 1. Нина — анализ ЦА
-        await update.message.reply_text("🔍 Нина анализирует целевую аудиторию...")
+        await update.message.reply_text("🔍 *Нина Соколова* — анализирую аудиторию, дайте минуту...", parse_mode=ParseMode.MARKDOWN)
         r_analyst = analyst.run(topic, GEMINI_API_KEY)
-        await update.message.reply_text(f"✅ *Нина готова*\n\n{_short(r_analyst['analysis'], 1500)}", parse_mode=ParseMode.MARKDOWN)
+        await send(update, f"🔍 *Нина:*\n\n{_short(r_analyst['analysis'], 2000)}")
 
         # 2. Артём — стратегия
-        await update.message.reply_text("📐 Артём строит стратегию...")
+        await update.message.reply_text("📐 *Артём Волков* — Нина, понял тебя. Строю стратегию под эту боль...", parse_mode=ParseMode.MARKDOWN)
         r_strategist = strategist.run(topic, r_analyst["analysis"], GEMINI_API_KEY)
-        await update.message.reply_text(f"✅ *Артём готов*\n\n{_short(r_strategist['strategy'], 1500)}", parse_mode=ParseMode.MARKDOWN)
+        await send(update, f"📐 *Артём:*\n\n{_short(r_strategist['strategy'], 2000)}")
 
         # 3. Олег — маркетинг
-        await update.message.reply_text("💰 Олег даёт маркетинговую оценку...")
+        await update.message.reply_text("💰 *Олег Петров* — смотрю на это с точки зрения денег и конверсии...", parse_mode=ParseMode.MARKDOWN)
         r_marketer = marketer.run(topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
-        await update.message.reply_text(f"✅ *Олег готов*\n\n{_short(r_marketer['marketing'], 800)}", parse_mode=ParseMode.MARKDOWN)
+        await send(update, f"💰 *Олег:*\n\n{_short(r_marketer['marketing'], 1200)}")
 
-        # 4. Маша — Telegram + Катя — Instagram (параллельно через asyncio)
-        await update.message.reply_text("✍️ Маша и Катя пишут тексты...")
+        # 4. Маша + Катя — параллельно
+        await update.message.reply_text(
+            "✍️ *Маша Иванова* — беру бриф от Артёма и Олега, пишу для Telegram...\n"
+            "📸 *Катя Смирнова* — я параллельно делаю Instagram-версию...",
+            parse_mode=ParseMode.MARKDOWN
+        )
         loop = asyncio.get_event_loop()
-
         r_copy, r_insta = await asyncio.gather(
             loop.run_in_executor(None, lambda: copywriter.run(
                 topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY
@@ -128,59 +134,74 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 topic, r_analyst["analysis"], r_strategist["strategy"], r_marketer["marketing"], GEMINI_API_KEY
             ))
         )
+        await update.message.reply_text("✍️ *Маша* — готово, передаю Игорю на проверку.\n📸 *Катя* — моя версия тоже готова, Лена смотри.", parse_mode=ParseMode.MARKDOWN)
 
-        # 5. Игорь — редактор Telegram (до 2 итераций)
-        await update.message.reply_text("👁 Игорь редактирует Telegram-тексты...")
+        # 5. Игорь — редактор TG
+        await update.message.reply_text("👁 *Игорь Сидоров* — читаю Машин текст внимательно...", parse_mode=ParseMode.MARKDOWN)
         r_editor = editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_copy["texts"], GEMINI_API_KEY)
         final_tg = r_copy["texts"]
 
         if not r_editor["accepted"]:
-            await update.message.reply_text(f"🔄 Игорь отклонил — Маша переписывает...\n_{_short(r_editor['review'], 500)}_", parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(
+                f"👁 *Игорь:* Маша, не пойдёт. Вот что не так:\n\n_{_short(r_editor['review'], 600)}_\n\nПеределай.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await update.message.reply_text("✍️ *Маша:* Поняла, исправляю...", parse_mode=ParseMode.MARKDOWN)
             r_copy2 = copywriter.run(topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
                                      editor_feedback=r_editor["review"], iteration=2)
             r_editor2 = editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_copy2["texts"],
                                    GEMINI_API_KEY, iteration=2)
             final_tg = r_copy2["texts"]
-            status = "✅ ПРИНЯТО" if r_editor2["accepted"] else "⚠️ Принято после 2 итераций"
+            if r_editor2["accepted"]:
+                await update.message.reply_text("👁 *Игорь:* Теперь хорошо. Принято. ✅", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text("👁 *Игорь:* Не идеально, но времени нет. Принимаю. ⚠️", parse_mode=ParseMode.MARKDOWN)
         else:
-            status = "✅ ПРИНЯТО с первого раза"
+            await update.message.reply_text("👁 *Игорь:* С первого раза хорошо. Редко такое. Принято. ✅", parse_mode=ParseMode.MARKDOWN)
 
-        await update.message.reply_text(f"👁 *Игорь:* {status}", parse_mode=ParseMode.MARKDOWN)
-
-        # 6. Лена — редактор Instagram (до 2 итераций)
-        await update.message.reply_text("👁 Лена проверяет Instagram-контент...")
+        # 6. Лена — редактор IG
+        await update.message.reply_text("👁 *Лена Козлова* — проверяю Катин Instagram-контент...", parse_mode=ParseMode.MARKDOWN)
         r_ig_ed = instagram_editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_insta["texts"], GEMINI_API_KEY)
         final_ig = r_insta["texts"]
 
         if not r_ig_ed["accepted"]:
-            await update.message.reply_text(f"🔄 Лена отклонила — Катя переписывает...", parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(
+                f"👁 *Лена:* Катя, нужно переделать.\n\n_{_short(r_ig_ed['review'], 400)}_",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await update.message.reply_text("📸 *Катя:* Хорошо, сейчас исправлю...", parse_mode=ParseMode.MARKDOWN)
             r_insta2 = instagram_writer.run(topic, r_analyst["analysis"], r_strategist["strategy"],
                                              r_marketer["marketing"], GEMINI_API_KEY,
                                              editor_feedback=r_ig_ed["review"], iteration=2)
             r_ig_ed2 = instagram_editor.run(topic, r_analyst["analysis"], r_strategist["strategy"],
                                              r_insta2["texts"], GEMINI_API_KEY, iteration=2)
             final_ig = r_insta2["texts"]
-            ig_status = "✅ ПРИНЯТО" if r_ig_ed2["accepted"] else "⚠️ Принято после 2 итераций"
+            if r_ig_ed2["accepted"]:
+                await update.message.reply_text("👁 *Лена:* Теперь норм. Принято. ✅", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text("👁 *Лена:* Принимаю как есть. ⚠️", parse_mode=ParseMode.MARKDOWN)
         else:
-            ig_status = "✅ ПРИНЯТО с первого раза"
+            await update.message.reply_text("👁 *Лена:* Всё отлично, без правок. ✅", parse_mode=ParseMode.MARKDOWN)
 
-        await update.message.reply_text(f"👁 *Лена:* {ig_status}", parse_mode=ParseMode.MARKDOWN)
-
-        # 7. Даша — очеловечиватель
-        await update.message.reply_text("🧬 Даша очеловечивает тексты...")
+        # 7. Даша
+        await update.message.reply_text("🧬 *Даша Новикова* — убираю роботизированность, добавляю живость...", parse_mode=ParseMode.MARKDOWN)
         r_human = humanizer.run(topic, final_tg, final_ig, GEMINI_API_KEY)
 
-        # 8. Рита — публикатор
-        await update.message.reply_text("📦 Рита упаковывает для публикации...")
+        # 8. Рита
+        await update.message.reply_text("📦 *Рита Морозова* — упаковываю всё для публикации, финальная версия...", parse_mode=ParseMode.MARKDOWN)
         combined = r_human["telegram_humanized"] + "\n\n---\n\n" + r_human["instagram_humanized"]
         r_pub = publisher.run(topic, combined, r_strategist["strategy"], GEMINI_API_KEY)
 
-        # Финал — отправляем весь контент
-        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\n✅ КОМАНДА ЗАВЕРШИЛА РАБОТУ\n━━━━━━━━━━━━━━━━━━━")
-
-        await send(update, f"📱 *TELEGRAM-ТЕКСТ:*\n\n{r_human['telegram_humanized']}")
-        await send(update, f"📸 *INSTAGRAM-КОНТЕНТ:*\n\n{r_human['instagram_humanized']}")
-        await send(update, f"📋 *УПАКОВКА ОТ РИТЫ:*\n\n{r_pub['final_content']}")
+        # Финал
+        await update.message.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "✅ *Команда сдала работу*\n"
+            "━━━━━━━━━━━━━━━━━━━",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await send(update, f"📱 *TELEGRAM-ТЕКСТ (от Даши):*\n\n{r_human['telegram_humanized']}")
+        await send(update, f"📸 *INSTAGRAM-КОНТЕНТ (от Даши):*\n\n{r_human['instagram_humanized']}")
+        await send(update, f"📋 *ФИНАЛЬНАЯ УПАКОВКА (от Риты):*\n\n{r_pub['final_content']}")
 
     except Exception as e:
         logger.exception("Ошибка в /пост")
@@ -197,16 +218,23 @@ async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
         return
 
-    await update.message.reply_text(f"🏆 Виктор строит оффер для:\n«{product}»\n\nЭто займёт ~1 минуту...")
+    await update.message.reply_text(
+        f"👥 *Нина и Виктор берутся за оффер:*\n«{product}»\n\n_Займёт ~1 минуту..._",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
     try:
-        await update.message.reply_text("🔍 Сначала Нина анализирует ЦА...")
+        await update.message.reply_text("🔍 *Нина Соколова* — сначала разберусь кто эти люди и что им реально нужно...", parse_mode=ParseMode.MARKDOWN)
         r_analyst = analyst.run(product, GEMINI_API_KEY)
+        await update.message.reply_text(f"🔍 *Нина:* Готово. Виктор, передаю тебе анализ — смотри особенно на страхи и триггеры.", parse_mode=ParseMode.MARKDOWN)
 
-        await update.message.reply_text("🏆 Виктор строит оффер по Hormozi...")
+        await update.message.reply_text("🏆 *Виктор Громов* — получил, Нина. Строю оффер по Hormozi...", parse_mode=ParseMode.MARKDOWN)
         r_offer = offer_architect.run(product, r_analyst["analysis"], GEMINI_API_KEY)
 
-        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\n✅ ОФФЕР ГОТОВ\n━━━━━━━━━━━━━━━━━━━")
+        await update.message.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\n✅ *Виктор сдал оффер*\n━━━━━━━━━━━━━━━━━━━",
+            parse_mode=ParseMode.MARKDOWN
+        )
         await send(update, f"🏆 *ОФФЕР — {product.upper()}*\n\n{r_offer['offer']}")
 
     except Exception as e:
