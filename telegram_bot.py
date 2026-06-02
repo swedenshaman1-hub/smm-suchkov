@@ -16,11 +16,13 @@ import asyncio
 import logging
 import os
 import sys
+import tempfile
 
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -232,6 +234,48 @@ async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ GEMINI_API_KEY не задан")
+        return
+
+    await update.message.reply_text("🎤 Получил голосовое. Расшифровываю...")
+
+    voice = update.message.voice
+    file = await context.bot.get_file(voice.file_id)
+
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        with open(tmp_path, "rb") as f:
+            audio_data = f.read()
+
+        response = model.generate_content([
+            "Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.",
+            {"mime_type": "audio/ogg", "data": audio_data}
+        ])
+        transcript = response.text.strip()
+
+        await update.message.reply_text(f"📝 *Расшифровка:*\n\n{transcript}", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            "Что делать с этим текстом?\n\n"
+            f"/post {transcript[:100]}... — создать пост\n"
+            f"/offer {transcript[:100]}... — создать оффер\n\n"
+            "Или скопируй нужную команду и замени текст на свой."
+        )
+
+    except Exception as e:
+        logger.exception("Ошибка при обработке голосового")
+        await update.message.reply_text(f"❌ Не удалось расшифровать: {e}")
+    finally:
+        os.unlink(tmp_path)
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
 
@@ -251,6 +295,7 @@ def main():
     app.add_handler(CommandHandler("post", cmd_post))
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     print("✅ Бот запущен. Нажми Ctrl+C для остановки.")
