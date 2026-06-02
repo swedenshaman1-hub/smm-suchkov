@@ -249,14 +249,23 @@ async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
         return
 
-    msg = "🔧 Алекс проводит аудит команды..."
     if focus:
-        msg += f"\nФокус: «{focus}»"
-    await update.message.reply_text(msg)
+        await update.message.reply_text(
+            f"🔧 *Алекс Громов* — сейчас разберу команду с фокусом на:\n«{focus}»\n\n_Читаю память всех агентов..._",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            "🔧 *Алекс Громов* — провожу полный аудит команды. Читаю память каждого агента, ищу слабые места...",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
     try:
         r = team_architect.run(GEMINI_API_KEY, focus=focus)
-        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\n🔧 АУДИТ КОМАНДЫ\n━━━━━━━━━━━━━━━━━━━")
+        await update.message.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\n🔧 *Алекс Громов — Аудит команды*\n━━━━━━━━━━━━━━━━━━━",
+            parse_mode=ParseMode.MARKDOWN
+        )
         await send(update, r["audit"])
 
     except Exception as e:
