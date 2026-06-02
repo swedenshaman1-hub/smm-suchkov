@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
-import google.generativeai as genai
+from google import genai as google_genai
 
 load_dotenv()
 
@@ -249,15 +249,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tmp_path = tmp.name
 
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        client = google_genai.Client(api_key=GEMINI_API_KEY)
 
-        audio_file = genai.upload_file(tmp_path, mime_type="audio/ogg")
+        audio_file = client.files.upload(
+            path=tmp_path,
+            config={"mime_type": "audio/ogg"}
+        )
 
-        response = model.generate_content([
-            "Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.",
-            audio_file
-        ])
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=["Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.", audio_file]
+        )
         transcript = response.text.strip()
 
         await update.message.reply_text(f"📝 *Расшифровка:*\n\n{transcript}", parse_mode=ParseMode.MARKDOWN)
