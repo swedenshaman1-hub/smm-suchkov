@@ -32,6 +32,7 @@ from agents import (
     instagram_writer, editor, instagram_editor,
     humanizer, publisher, offer_architect, team_architect
 )
+from agents import memory_utils
 
 
 def _short(text: str, n: int = 3500) -> str:
@@ -168,6 +169,13 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         await _send(msg, f"📸 INSTAGRAM-КОНТЕНТ (от Даши):\n\n{r_human['instagram_humanized']}")
         await _send(msg, f"📋 ФИНАЛЬНАЯ УПАКОВКА (от Риты):\n\n{r_pub['final_content']}")
 
+        # Сохраняем фидбек в память агентов на будущее
+        if feedback:
+            for agent_id in ["copywriter", "instagram_writer", "humanizer"]:
+                mem = memory_utils.load(agent_id)
+                memory_utils.add_feedback(mem, "Дмитрий (пользователь)", feedback, topic)
+                memory_utils.save(agent_id, mem)
+
         # Сохраняем тему и предлагаем доработку
         user_data["last_post_topic"] = topic
         user_data["waiting_feedback"] = False
@@ -272,10 +280,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tmp_path = tmp.name
         try:
             feedback = await _transcribe_voice(tmp_path)
-            topic = context.user_data.get("last_post_topic", "")
-            await update.message.reply_text(f"📝 Правки: {feedback}")
             context.user_data["waiting_feedback"] = False
-            await _run_post(update.message, topic, context.user_data, feedback=feedback)
+            context.user_data["pending_feedback"] = feedback
+            topic = context.user_data.get("last_post_topic", "")
+            keyboard = [[InlineKeyboardButton("✅ Доработать пост", callback_data="confirm_revise")]]
+            await update.message.reply_text(
+                f"📝 Твои правки:\n\n{feedback}\n\nТема: «{topic}»",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {e}")
         finally:
@@ -320,7 +332,12 @@ async def handle_text_feedback(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Нет сохранённого поста для доработки. Сначала создай пост через /post.")
         return
     context.user_data["waiting_feedback"] = False
-    await _run_post(update.message, topic, context.user_data, feedback=feedback)
+    context.user_data["pending_feedback"] = feedback
+    keyboard = [[InlineKeyboardButton("✅ Доработать пост", callback_data="confirm_revise")]]
+    await update.message.reply_text(
+        f"📝 Твои правки:\n\n{feedback}\n\nТема: «{topic}»",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -338,6 +355,16 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔄 Доработка поста по теме «{topic}»\n\n"
             "Отправь голосовое или напиши текстом — что именно изменить."
         )
+
+    elif data == "confirm_revise":
+        topic = context.user_data.get("last_post_topic", "")
+        feedback = context.user_data.get("pending_feedback", "")
+        if not topic or not feedback:
+            await query.edit_message_text("Что-то пошло не так. Нажми '🔄 Доработать пост' ещё раз.")
+            return
+        context.user_data["pending_feedback"] = ""
+        await query.edit_message_text(f"✅ Запускаю доработку.\nПравки: {feedback}")
+        await _run_post(query.message, topic, context.user_data, feedback=feedback)
 
     elif data.startswith("post:"):
         topic = data[5:]
