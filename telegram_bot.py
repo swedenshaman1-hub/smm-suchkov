@@ -253,7 +253,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         client = google_genai.Client(api_key=GEMINI_API_KEY)
 
         audio_file = client.files.upload(
-            path=tmp_path,
+            file=tmp_path,
             config={"mime_type": "audio/ogg"}
         )
 
