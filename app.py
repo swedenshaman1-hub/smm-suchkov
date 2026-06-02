@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agents import analyst, strategist, copywriter, editor, publisher
-from agents import marketer, instagram_writer, instagram_editor, humanizer, offer_architect, architect
+from agents import marketer, instagram_writer, instagram_editor, humanizer, offer_architect, team_architect
 
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 
@@ -426,29 +426,28 @@ Instagram-текст: {final_ig[:400]}
             disabled=not API_KEY
         )
 
+        with col1:
+            audit_focus = st.text_input(
+                "Фокус анализа (необязательно)",
+                placeholder="Например: почему редактор часто отклоняет тексты?"
+            )
+
         if audit_btn:
             with st.status("🏗 Алекс анализирует команду...", expanded=True) as s:
                 st.write("Читает память всех агентов...")
-                r_audit = architect.run(API_KEY, apply_fixes=apply_fixes)
-                label = "✅ Аудит завершён"
-                if r_audit["applied_fixes"]:
-                    label += f" | Улучшены: {', '.join(r_audit['applied_fixes'])}"
-                s.update(label=label, state="complete")
+                r_audit = team_architect.run(API_KEY, focus=audit_focus or None)
+                s.update(label="✅ Аудит завершён", state="complete")
 
             st.markdown(
                 f'<div class="agent-block final"><div class="agent-name">🏗 Алекс Громов (Архитектор)</div>'
-                f'{r_audit["analysis"]}</div>',
+                f'{r_audit["audit"]}</div>',
                 unsafe_allow_html=True
             )
-
-            if r_audit["applied_fixes"]:
-                st.success(f"⚡ Автоматически улучшены агенты: {', '.join(r_audit['applied_fixes'])}")
-                st.info("Изменения применены в файлы. Перезапусти приложение чтобы агенты заработали с новыми промптами.")
 
             st.divider()
             st.download_button(
                 "💾 Скачать отчёт аудита",
-                data=r_audit["analysis"],
+                data=r_audit["audit"],
                 file_name=f"audit_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                 mime="text/plain",
                 use_container_width=True
