@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -255,6 +256,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             path=tmp_path,
             config={"mime_type": "audio/ogg"}
         )
+
+        # Ждём пока файл станет ACTIVE (обычно мгновенно для маленьких файлов)
+        for _ in range(10):
+            if audio_file.state.name == "ACTIVE":
+                break
+            time.sleep(1)
+            audio_file = client.files.get(name=audio_file.name)
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
