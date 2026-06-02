@@ -60,14 +60,14 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *Команды:*
 
-`/пост <тема>` — полный цикл создания контента
-_Пример: /пост выгорание у женщин-руководителей_
+`/post <тема>` — полный цикл создания контента
+_Пример: /post выгорание у женщин-руководителей_
 
-`/оффер <продукт>` — создать продающий оффер
-_Пример: /оффер Личная сессия с Дмитрием_
+`/offer <продукт>` — создать продающий оффер
+_Пример: /offer Личная сессия с Дмитрием_
 
-`/архитектор` — аудит команды и план улучшений
-`/архитектор <вопрос>` — аудит с фокусом на конкретную проблему
+`/architect` — аудит команды и план улучшений
+`/architect <вопрос>` — аудит с фокусом на конкретную проблему
 
 *Команда (11 агентов):*
 🔍 Нина — анализ ЦА
@@ -87,7 +87,7 @@ _Пример: /оффер Личная сессия с Дмитрием_
 async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = " ".join(context.args).strip()
     if not topic:
-        await update.message.reply_text("Укажи тему: /пост выгорание у женщин-руководителей")
+        await update.message.reply_text("Укажи тему: /post выгорание у женщин-руководителей")
         return
 
     if not GEMINI_API_KEY:
@@ -186,7 +186,7 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product = " ".join(context.args).strip()
     if not product:
-        await update.message.reply_text("Укажи продукт: /оффер Личная сессия с Дмитрием")
+        await update.message.reply_text("Укажи продукт: /offer Личная сессия с Дмитрием")
         return
 
     if not GEMINI_API_KEY:
@@ -233,7 +233,7 @@ async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Команда не распознана. Напиши /помощь для списка команд.")
+    await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
 
 
 def main():
@@ -247,10 +247,10 @@ def main():
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler(["помощь", "help", "start"], cmd_help))
-    app.add_handler(CommandHandler("пост", cmd_post))
-    app.add_handler(CommandHandler("оффер", cmd_offer))
-    app.add_handler(CommandHandler("архитектор", cmd_architect))
+    app.add_handler(CommandHandler(["help", "start"], cmd_help))
+    app.add_handler(CommandHandler("post", cmd_post))
+    app.add_handler(CommandHandler("offer", cmd_offer))
+    app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     print("✅ Бот запущен. Нажми Ctrl+C для остановки.")
