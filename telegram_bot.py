@@ -252,12 +252,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.0-flash")
 
-        with open(tmp_path, "rb") as f:
-            audio_data = f.read()
+        audio_file = genai.upload_file(tmp_path, mime_type="audio/ogg")
 
         response = model.generate_content([
             "Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.",
-            {"mime_type": "audio/ogg", "data": audio_data}
+            audio_file
         ])
         transcript = response.text.strip()
 
@@ -273,7 +272,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Ошибка при обработке голосового")
         await update.message.reply_text(f"❌ Не удалось расшифровать: {e}")
     finally:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
