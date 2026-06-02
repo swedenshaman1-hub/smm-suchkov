@@ -1,5 +1,5 @@
-"""
-Утилиты для работы с Gemini API (google-genai SDK)
+﻿"""
+РЈС‚РёР»РёС‚С‹ РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ Gemini API (google-genai SDK)
 """
 from google import genai
 from google.genai import types
