@@ -24,6 +24,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
 from google import genai as google_genai
+from google.genai import types as genai_types
 
 load_dotenv()
 
@@ -250,23 +251,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tmp_path = tmp.name
 
     try:
+        with open(tmp_path, "rb") as f:
+            audio_bytes = f.read()
+
         client = google_genai.Client(api_key=GEMINI_API_KEY)
 
-        audio_file = client.files.upload(
-            file=tmp_path,
-            config={"mime_type": "audio/ogg"}
-        )
-
-        # Ждём пока файл станет ACTIVE (обычно мгновенно для маленьких файлов)
-        for _ in range(10):
-            if audio_file.state.name == "ACTIVE":
-                break
-            time.sleep(1)
-            audio_file = client.files.get(name=audio_file.name)
-
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=["Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.", audio_file]
+            model="gemini-2.0-flash",
+            contents=[
+                genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
+                "Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев."
+            ]
         )
         transcript = response.text.strip()
 
