@@ -265,7 +265,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audio_file = client.files.get(name=audio_file.name)
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash",
             contents=["Расшифруй это голосовое сообщение дословно на русском языке. Только текст, без комментариев.", audio_file]
         )
         transcript = response.text.strip()
