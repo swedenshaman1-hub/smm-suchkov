@@ -1,6 +1,6 @@
-﻿"""
-РЎРёСЃС‚РµРјР° РіР»СѓР±РѕРєРѕР№ РїР°РјСЏС‚Рё Р°РіРµРЅС‚РѕРІ вЂ” С…СЂР°РЅРµРЅРёРµ РІ Supabase (PostgreSQL).
-Fallback РЅР° Р»РѕРєР°Р»СЊРЅС‹Рµ JSON-С„Р°Р№Р»С‹ РµСЃР»Рё Supabase РЅРµРґРѕСЃС‚СѓРїРµРЅ.
+"""
+Система глубокой памяти агентов — хранение в Supabase (PostgreSQL).
+Fallback на локальные JSON-файлы если Supabase недоступен.
 """
 
 import json
@@ -9,7 +9,7 @@ from datetime import datetime
 
 MEMORY_BASE = os.path.join(os.path.dirname(__file__), "..", "memory")
 
-# Supabase РєР»РёРµРЅС‚ вЂ” РёРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚СЃСЏ РѕРґРёРЅ СЂР°Р·
+# Supabase клиент — инициализируется один раз
 _supabase_client = None
 
 def _get_client():
@@ -40,7 +40,7 @@ def load(agent_id: str) -> dict:
                 return res.data[0]["memory"]
         except Exception:
             pass
-    # Fallback вЂ” Р»РѕРєР°Р»СЊРЅС‹Р№ С„Р°Р№Р»
+    # Fallback — локальный файл
     path = _path(agent_id)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -62,7 +62,7 @@ def save(agent_id: str, memory: dict):
             return
         except Exception:
             pass
-    # Fallback вЂ” Р»РѕРєР°Р»СЊРЅС‹Р№ С„Р°Р№Р»
+    # Fallback — локальный файл
     os.makedirs(MEMORY_BASE, exist_ok=True)
     with open(_path(agent_id), "w", encoding="utf-8") as f:
         json.dump(memory, f, ensure_ascii=False, indent=2)
@@ -143,29 +143,29 @@ def build_context(memory: dict, topic: str) -> str:
     lines = []
     count = memory["profile"].get("sessions_count", 0)
     if count > 0:
-        lines.append(f"\n\nв•ђв•ђв•ђ РўР’РћРЇ РџРђРњРЇРўР¬ ({count} СЃРµСЃСЃРёР№) в•ђв•ђв•ђ")
+        lines.append(f"\n\n═══ ТВОЯ ПАМЯТЬ ({count} сессий) ═══")
 
     relevant = get_relevant_insights(memory, topic, n=8)
     if relevant:
-        lines.append("\nРљР›Р®Р§Р•Р’Р«Р• РРќРЎРђР™РўР« (РёР· РїСЂРѕС€Р»РѕРіРѕ РѕРїС‹С‚Р°):")
+        lines.append("\nКЛЮЧЕВЫЕ ИНСАЙТЫ (из прошлого опыта):")
         for ins in relevant:
-            lines.append(f"вЂў {ins}")
+            lines.append(f"• {ins}")
 
     successful = memory["techniques"]["successful"][-5:]
     if successful:
-        lines.append("\nР§РўРћ Р РђР‘РћРўРђР›Рћ Р›РЈР§РЁР• Р’РЎР•Р“Рћ:")
+        lines.append("\nЧТО РАБОТАЛО ЛУЧШЕ ВСЕГО:")
         for t in successful:
-            lines.append(f"вњ“ {t['text']} [С‚РµРјР°: {t['topic']}]")
+            lines.append(f"✓ {t['text']} [тема: {t['topic']}]")
 
     failed = memory["techniques"]["failed"][-3:]
     if failed:
-        lines.append("\nР§РўРћ РќР• Р РђР‘РћРўРђР›Рћ (РёР·Р±РµРіР°С‚СЊ):")
+        lines.append("\nЧТО НЕ РАБОТАЛО (избегать):")
         for t in failed:
-            lines.append(f"вњ— {t['text']}")
+            lines.append(f"✗ {t['text']}")
 
     feedback = memory["team_feedback"][-4:]
     if feedback:
-        lines.append("\nРћРўР—Р«Р’Р« РљРћРњРђРќР”Р«:")
+        lines.append("\nОТЗЫВЫ КОМАНДЫ:")
         for fb in feedback:
             lines.append(f"[{fb['from']}]: {fb['feedback']}")
 
