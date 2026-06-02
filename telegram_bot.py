@@ -304,10 +304,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(f"📝 *Расшифровка:*\n\n{transcript}", parse_mode=ParseMode.MARKDOWN)
 
-        short = transcript[:200]
+        short = transcript[:55]  # Telegram limit: 64 bytes total
         keyboard = [
             [InlineKeyboardButton("✍️ Создать пост", callback_data=f"post:{short}")],
-            [InlineKeyboardButton("🏆 Создать оффер", callback_data=f"offer:{short}")],
+            [InlineKeyboardButton("🏆 Создать оффер", callback_data=f"ofr:{short}")],
         ]
         await update.message.reply_text(
             "Что делать с этим текстом?",
@@ -335,8 +335,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"✅ Запускаю пост по теме:\n«{topic}»")
         update.message = query.message
         await cmd_post(update, context)
-    elif data.startswith("offer:"):
-        product = data[6:]
+    elif data.startswith("ofr:"):
+        product = data[4:]
         context.args = product.split()
         await query.edit_message_text(f"✅ Запускаю оффер для:\n«{product}»")
         update.message = query.message
