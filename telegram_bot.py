@@ -20,8 +20,8 @@ import tempfile
 import time
 
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
 from google import genai as google_genai
 from google.genai import types as genai_types
@@ -91,7 +91,7 @@ _Пример: /offer Личная сессия с Дмитрием_
 async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = " ".join(context.args).strip()
     if not topic:
-        await update.message.reply_text("Укажи тему: /post выгорание у женщин-руководителей")
+        await update.message.reply_text("Укажи тему после команды.\nПример: /post практика танец души")
         return
 
     if not GEMINI_API_KEY:
@@ -303,11 +303,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcript = response.text.strip()
 
         await update.message.reply_text(f"📝 *Расшифровка:*\n\n{transcript}", parse_mode=ParseMode.MARKDOWN)
+
+        short = transcript[:200]
+        keyboard = [
+            [InlineKeyboardButton("✍️ Создать пост", callback_data=f"post:{short}")],
+            [InlineKeyboardButton("🏆 Создать оффер", callback_data=f"offer:{short}")],
+        ]
         await update.message.reply_text(
-            "Что делать с этим текстом?\n\n"
-            f"/post {transcript[:100]}... — создать пост\n"
-            f"/offer {transcript[:100]}... — создать оффер\n\n"
-            "Или скопируй нужную команду и замени текст на свой."
+            "Что делать с этим текстом?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     except Exception as e:
@@ -318,6 +322,25 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.unlink(tmp_path)
         except Exception:
             pass
+
+
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data.startswith("post:"):
+        topic = data[5:]
+        context.args = topic.split()
+        await query.edit_message_text(f"✅ Запускаю пост по теме:\n«{topic}»")
+        update.message = query.message
+        await cmd_post(update, context)
+    elif data.startswith("offer:"):
+        product = data[6:]
+        context.args = product.split()
+        await query.edit_message_text(f"✅ Запускаю оффер для:\n«{product}»")
+        update.message = query.message
+        await cmd_offer(update, context)
 
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -339,6 +362,7 @@ def main():
     app.add_handler(CommandHandler("post", cmd_post))
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
+    app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
