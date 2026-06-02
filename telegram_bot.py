@@ -312,10 +312,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(f"📝 *Расшифровка:*\n\n{transcript}", parse_mode=ParseMode.MARKDOWN)
 
-        short = transcript[:55]  # Telegram limit: 64 bytes total
+        def fit_bytes(text: str, prefix: str, limit: int = 64) -> str:
+            max_bytes = limit - len(prefix.encode("utf-8"))
+            encoded = text.encode("utf-8")[:max_bytes]
+            return encoded.decode("utf-8", errors="ignore")
+
         keyboard = [
-            [InlineKeyboardButton("✍️ Создать пост", callback_data=f"post:{short}")],
-            [InlineKeyboardButton("🏆 Создать оффер", callback_data=f"ofr:{short}")],
+            [InlineKeyboardButton("✍️ Создать пост", callback_data="post:" + fit_bytes(transcript, "post:"))],
+            [InlineKeyboardButton("🏆 Создать оффер", callback_data="ofr:" + fit_bytes(transcript, "ofr:"))],
         ]
         await update.message.reply_text(
             "Что делать с этим текстом?",
