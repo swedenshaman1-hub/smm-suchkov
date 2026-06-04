@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agents import (
     analyst, strategist, marketer, copywriter,
     instagram_writer, editor, instagram_editor,
-    humanizer, publisher, offer_architect, team_architect
+    humanizer, publisher, offer_architect, team_architect, content_planner
 )
 from agents import memory_utils
 
@@ -255,6 +255,39 @@ async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("GEMINI_API_KEY не задан в .env")
         return
     await _run_offer(update.message, product)
+
+
+async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    mode = "week"
+    events = None
+    if args:
+        first = args[0].lower()
+        if first in ("month", "месяц", "месячный"):
+            mode = "month"
+            events = " ".join(args[1:]).strip() or None
+        elif first in ("campaign", "кампания"):
+            mode = "campaign"
+            events = " ".join(args[1:]).strip() or None
+        else:
+            events = " ".join(args).strip() or None
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    mode_label = {"week": "недельный", "month": "месячный", "campaign": "под кампанию"}.get(mode, "недельный")
+    await update.message.reply_text(
+        f"Соня Белова — составляю {mode_label} контент-план"
+        + (f".\nСобытия: {events}" if events else "") + "\n\nЗаймёт ~1 минуту..."
+    )
+    try:
+        r = content_planner.run(GEMINI_API_KEY, mode=mode, events=events)
+        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nСоня — Контент-план\n━━━━━━━━━━━━━━━━━━━")
+        await _send(update.message, r["plan"])
+    except Exception as e:
+        logger.exception("Ошибка в /plan")
+        await update.message.reply_text(f"Ошибка: {e}")
 
 
 async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -485,6 +518,7 @@ def main():
     app.add_handler(CommandHandler("post", cmd_post))
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
+    app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

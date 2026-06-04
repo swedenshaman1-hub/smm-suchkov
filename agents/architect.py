@@ -68,6 +68,7 @@ TEAM_AGENTS = [
     ("publisher", "Света Громова — Публикатор"),
     ("offer_architect", "Виктор — Архитектор оффера"),
     ("ai_architect", "Павел Крылов — AI-архитектор"),
+    ("content_planner", "Соня Белова — Контент-планировщик"),
 ]
 
 
@@ -130,6 +131,7 @@ def _load_agent_prompts() -> str:
         "publisher": "publisher.py",
         "offer_architect": "offer_architect.py",
         "ai_architect": "ai_architect.py",
+        "content_planner": "content_planner.py",
     }
 
     for agent_id, filename in prompt_map.items():
