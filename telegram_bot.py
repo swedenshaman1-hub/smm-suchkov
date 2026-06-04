@@ -31,7 +31,7 @@ from agents import (
     analyst, strategist, marketer, copywriter,
     instagram_writer, editor, instagram_editor,
     humanizer, publisher, offer_architect, team_architect, content_planner,
-    community_manager
+    community_manager, comment_analyst
 )
 from agents import memory_utils
 
@@ -348,6 +348,63 @@ async def cmd_community(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Ошибка: {e}")
 
 
+async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Таня Серова — Аналитик комментариев и репутации\n\n"
+            "Использование:\n"
+            "/analytics <публикация> | <комментарии> — анализ после публикации\n"
+            "/analytics weekly | <данные> — еженедельный репутационный срез\n"
+            "/analytics kb | <данные> — обновление базы знаний аудитории\n"
+            "/analytics alert | <описание сигнала> — разбор репутационного сигнала"
+        )
+        return
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    raw = " ".join(args)
+    mode = "post_report"
+
+    if raw.startswith("weekly"):
+        mode = "weekly_rep"
+        raw = raw[6:].lstrip(" |").strip()
+    elif raw.startswith("kb"):
+        mode = "knowledge_base"
+        raw = raw[2:].lstrip(" |").strip()
+    elif raw.startswith("alert"):
+        mode = "reputation_alert"
+        raw = raw[5:].lstrip(" |").strip()
+
+    parts = raw.split("|", 1)
+    publication = parts[0].strip()
+    comments = parts[1].strip() if len(parts) > 1 else None
+
+    mode_labels = {
+        "post_report": "анализирую комментарии после публикации",
+        "weekly_rep": "составляю еженедельный репутационный срез",
+        "knowledge_base": "обновляю базу знаний аудитории",
+        "reputation_alert": "разбираю репутационный сигнал",
+    }
+    await update.message.reply_text(f"Таня — {mode_labels.get(mode, mode)}...")
+
+    try:
+        r = comment_analyst.run(
+            GEMINI_API_KEY,
+            mode=mode,
+            publication=publication if mode == "post_report" else None,
+            comments_data=comments or (raw if mode != "post_report" else None),
+            reputation_data=raw if mode in ("weekly_rep", "reputation_alert") else None,
+        )
+        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nТаня — Аналитика\n━━━━━━━━━━━━━━━━━━━")
+        await _send(update.message, r["report"])
+    except Exception as e:
+        logger.exception("Ошибка в /analytics")
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
 async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     focus = " ".join(context.args).strip() if context.args else ""
     if not GEMINI_API_KEY:
@@ -578,6 +635,7 @@ def main():
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CommandHandler("community", cmd_community))
+    app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

@@ -30,6 +30,7 @@ SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор SMM-к
 11. Павел Крылов — AI-архитектор (улучшение промптов, аудит системы)
 12. Соня Белова — Контент-планировщик (контент-план, баланс тем и форматов)
 13. Миша Захаров — Менеджер комьюнити (комментарии, директ, лиды, отчёты по реакциям)
+14. Таня Серова — Аналитик комментариев и репутации (паттерны языка, база знаний аудитории, репутационный мониторинг)
 
 ТВОИ ЗАДАЧИ:
 
@@ -66,7 +67,7 @@ AGENT_IDS = [
     "analyst", "strategist", "marketer", "copywriter",
     "instagram_writer", "editor", "instagram_editor",
     "humanizer", "publisher", "offer_architect", "ai_architect", "content_planner",
-    "community_manager"
+    "community_manager", "comment_analyst"
 ]
 
 AGENT_NAMES = {
@@ -83,6 +84,7 @@ AGENT_NAMES = {
     "ai_architect": "Павел Крылов (AI-архитектор)",
     "content_planner": "Соня Белова (Контент-планировщик)",
     "community_manager": "Миша Захаров (Менеджер комьюнити)",
+    "comment_analyst": "Таня Серова (Аналитик комментариев и репутации)",
 }
 
 
