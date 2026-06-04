@@ -39,9 +39,15 @@ def _short(text: str, n: int = 3500) -> str:
     return text[:n] + "\n\n[текст обрезан]" if len(text) > n else text
 
 
-def _fit_bytes(text: str, prefix: str, limit: int = 64) -> str:
-    max_bytes = limit - len(prefix.encode("utf-8"))
-    return text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+def _store_topic(user_data: dict, key: str, value: str):
+    """Сохраняет длинный текст в user_data и возвращает короткий ключ для callback_data."""
+    if "topics" not in user_data:
+        user_data["topics"] = {}
+    user_data["topics"][key] = value
+
+
+def _get_topic(user_data: dict, key: str) -> str:
+    return user_data.get("topics", {}).get(key, "")
 
 
 async def _send(msg: Message, text: str):
@@ -60,12 +66,12 @@ async def _transcribe_voice(file_path: str) -> str:
             genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
             """Расшифруй это голосовое сообщение на русском языке.
 
-Контекст: говорит Дмитрий Сучков — психолог, автор метода GREM, ведёт практику «Танец Души». Работает с женщинами-лидерами и предпринимателями. Часто упоминает: GREM, Танец Души, сессии, выгорание, трансформация, осознанность, женское лидерство.
+Контекст: говорит Дмитрий Сучков — психолог, автор метода ГРЭМ, ведёт практику «Танец Души». Работает с предпринимателями и руководителями. Часто упоминает: ГРЭМ, Танец Души, сессии, выгорание, родовые программы, телесные практики.
 
 Правила:
 - Пиши точно как сказано, без пересказа
 - Правильно расставляй знаки препинания
-- Имена собственные и названия практик пиши с заглавной буквы
+- Имена собственные и названия практик пиши с заглавной буквы: «Танец Души», «ГРЭМ»
 - Только текст расшифровки, без комментариев и пояснений"""
         ]
     )
@@ -75,35 +81,35 @@ async def _transcribe_voice(file_path: str) -> str:
 async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = None):
     if feedback:
         await msg.reply_text(
-            f"🔄 Команда дорабатывает пост по теме:\n«{topic}»\n\nПравки: {feedback}\n\nЗаймёт 2–4 минуты..."
+            f"Команда дорабатывает пост по теме:\n«{topic}»\n\nПравки: {feedback}\n\nЗаймёт 2–4 минуты..."
         )
     else:
         await msg.reply_text(
-            f"👥 Команда берётся за тему:\n«{topic}»\n\nАгенты работают последовательно, это займёт 2–4 минуты..."
+            f"Команда берётся за тему:\n«{topic}»\n\nАгенты работают последовательно, займёт 2–4 минуты..."
         )
 
     try:
-        await msg.reply_text("🔍 Нина Соколова — анализирую аудиторию, дайте минуту...")
+        await msg.reply_text("Нина Соколова — анализирую аудиторию...")
         r_analyst = analyst.run(topic, GEMINI_API_KEY)
-        await _send(msg, f"🔍 Нина:\n\n{_short(r_analyst['analysis'], 2000)}")
+        await _send(msg, f"Нина:\n\n{_short(r_analyst['analysis'], 2000)}")
 
-        await msg.reply_text("📐 Артём Волков — Нина, понял тебя. Строю стратегию под эту боль...")
+        await msg.reply_text("Артём Волков — строю стратегию...")
         r_strategist = strategist.run(topic, r_analyst["analysis"], GEMINI_API_KEY)
-        await _send(msg, f"📐 Артём:\n\n{_short(r_strategist['strategy'], 2000)}")
+        await _send(msg, f"Артём:\n\n{_short(r_strategist['strategy'], 2000)}")
 
-        await msg.reply_text("💰 Олег Петров — смотрю на это с точки зрения денег и конверсии...")
+        await msg.reply_text("Олег Савин — оцениваю маркетинговый потенциал...")
         r_marketer = marketer.run(topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
-        await _send(msg, f"💰 Олег:\n\n{_short(r_marketer['marketing'], 1200)}")
+        await _send(msg, f"Олег:\n\n{_short(r_marketer['marketing'], 1200)}")
 
         if feedback:
             await msg.reply_text(
-                f"✍️ Маша Иванова — учитываю правки: «{feedback}». Переписываю...\n"
-                f"📸 Катя Смирнова — тоже переделываю с учётом замечаний..."
+                f"Маша Лебедева — учитываю правки, переписываю Telegram...\n"
+                f"Катя Миронова — переделываю Instagram с учётом замечаний..."
             )
         else:
             await msg.reply_text(
-                "✍️ Маша Иванова — беру бриф от Артёма и Олега, пишу для Telegram...\n"
-                "📸 Катя Смирнова — я параллельно делаю Instagram-версию..."
+                "Маша Лебедева — пишу два варианта для Telegram...\n"
+                "Катя Миронова — параллельно собираю Instagram-пакет..."
             )
 
         loop = asyncio.get_running_loop()
@@ -118,69 +124,89 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
             ))
         )
         await msg.reply_text(
-            "✍️ Маша — готово, передаю Игорю на проверку.\n"
-            "📸 Катя — моя версия тоже готова, Лена смотри."
+            "Маша — готово, передаю Игорю на проверку.\n"
+            "Катя — пакет готов, Лена смотри."
         )
 
-        await msg.reply_text("👁 Игорь Сидоров — читаю Машин текст внимательно...")
-        r_editor = editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_copy["texts"], GEMINI_API_KEY)
+        await msg.reply_text("Игорь Орлов — читаю оба варианта Маши...")
+        r_editor = editor.run(
+            topic, r_analyst["analysis"], r_strategist["strategy"],
+            r_copy["texts"], GEMINI_API_KEY
+        )
         final_tg = r_copy["texts"]
 
         if not r_editor["accepted"]:
             await msg.reply_text(
-                f"👁 Игорь: Маша, не пойдёт. Вот что не так:\n\n{_short(r_editor['review'], 600)}\n\nПеределай."
+                f"Игорь: Маша, не пойдёт. Вот что не так:\n\n{_short(r_editor['review'], 600)}\n\nПеределай."
             )
-            await msg.reply_text("✍️ Маша: Поняла, исправляю...")
-            r_copy2 = copywriter.run(topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
-                                     editor_feedback=r_editor["review"], iteration=2)
-            r_editor2 = editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_copy2["texts"],
-                                   GEMINI_API_KEY, iteration=2)
+            await msg.reply_text("Маша: Поняла, исправляю...")
+            r_copy2 = copywriter.run(
+                topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
+                editor_feedback=r_editor["review"], iteration=2
+            )
+            r_editor2 = editor.run(
+                topic, r_analyst["analysis"], r_strategist["strategy"],
+                r_copy2["texts"], GEMINI_API_KEY, iteration=2
+            )
             final_tg = r_copy2["texts"]
-            await msg.reply_text("👁 Игорь: Теперь хорошо. Принято. ✅" if r_editor2["accepted"] else "👁 Игорь: Не идеально, но принимаю. ⚠️")
+            await msg.reply_text(
+                "Игорь: Теперь хорошо. Принято." if r_editor2["accepted"] else "Игорь: Не идеально, но принимаю."
+            )
         else:
-            await msg.reply_text("👁 Игорь: С первого раза хорошо. Принято. ✅")
+            await msg.reply_text("Игорь: С первого раза хорошо. Принято.")
 
-        await msg.reply_text("👁 Лена Козлова — проверяю Катин Instagram-контент...")
-        r_ig_ed = instagram_editor.run(topic, r_analyst["analysis"], r_strategist["strategy"], r_insta["texts"], GEMINI_API_KEY)
+        await msg.reply_text("Лена Волкова — проверяю Instagram-пакет Кати...")
+        r_ig_ed = instagram_editor.run(
+            topic, r_analyst["analysis"], r_strategist["strategy"],
+            r_insta["texts"], GEMINI_API_KEY
+        )
         final_ig = r_insta["texts"]
 
         if not r_ig_ed["accepted"]:
-            await msg.reply_text(f"👁 Лена: Катя, нужно переделать.\n\n{_short(r_ig_ed['review'], 400)}")
-            await msg.reply_text("📸 Катя: Хорошо, сейчас исправлю...")
-            r_insta2 = instagram_writer.run(topic, r_analyst["analysis"], r_strategist["strategy"],
-                                             r_marketer["marketing"], GEMINI_API_KEY,
-                                             editor_feedback=r_ig_ed["review"], iteration=2)
-            r_ig_ed2 = instagram_editor.run(topic, r_analyst["analysis"], r_strategist["strategy"],
-                                             r_insta2["texts"], GEMINI_API_KEY, iteration=2)
+            await msg.reply_text(f"Лена: Катя, нужно переделать.\n\n{_short(r_ig_ed['review'], 400)}")
+            await msg.reply_text("Катя: Хорошо, сейчас исправлю...")
+            r_insta2 = instagram_writer.run(
+                topic, r_analyst["analysis"], r_strategist["strategy"],
+                r_marketer["marketing"], GEMINI_API_KEY,
+                editor_feedback=r_ig_ed["review"], iteration=2
+            )
+            r_ig_ed2 = instagram_editor.run(
+                topic, r_analyst["analysis"], r_strategist["strategy"],
+                r_insta2["texts"], GEMINI_API_KEY, iteration=2
+            )
             final_ig = r_insta2["texts"]
-            await msg.reply_text("👁 Лена: Теперь норм. Принято. ✅" if r_ig_ed2["accepted"] else "👁 Лена: Принимаю как есть. ⚠️")
+            await msg.reply_text(
+                "Лена: Теперь норм. Принято." if r_ig_ed2["accepted"] else "Лена: Принимаю как есть."
+            )
         else:
-            await msg.reply_text("👁 Лена: Всё отлично, без правок. ✅")
+            await msg.reply_text("Лена: Всё отлично, без правок.")
 
-        await msg.reply_text("🧬 Даша Новикова — убираю роботизированность, добавляю живость...")
+        await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
         r_human = humanizer.run(topic, final_tg, final_ig, GEMINI_API_KEY)
 
-        await msg.reply_text("📦 Рита Морозова — упаковываю всё для публикации, финальная версия...")
-        combined = r_human["telegram_humanized"] + "\n\n---\n\n" + r_human["instagram_humanized"]
-        r_pub = publisher.run(topic, combined, r_strategist["strategy"], GEMINI_API_KEY)
+        await msg.reply_text("Света Громова — финальная проверка и подготовка к публикации...")
+        r_pub = publisher.run(
+            topic,
+            r_human["telegram_humanized"],
+            r_human["instagram_humanized"],
+            GEMINI_API_KEY
+        )
 
-        await msg.reply_text("━━━━━━━━━━━━━━━━━━━\n✅ Команда сдала работу\n━━━━━━━━━━━━━━━━━━━")
-        await _send(msg, f"📱 TELEGRAM-ТЕКСТ (от Даши):\n\n{r_human['telegram_humanized']}")
-        await _send(msg, f"📸 INSTAGRAM-КОНТЕНТ (от Даши):\n\n{r_human['instagram_humanized']}")
-        await _send(msg, f"📋 ФИНАЛЬНАЯ УПАКОВКА (от Риты):\n\n{r_pub['final_content']}")
+        await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
+        await _send(msg, f"TELEGRAM-ТЕКСТ (от Даши):\n\n{r_human['telegram_humanized']}")
+        await _send(msg, f"INSTAGRAM-КОНТЕНТ (от Даши):\n\n{r_human['instagram_humanized']}")
+        await _send(msg, f"ФИНАЛЬНАЯ ПРОВЕРКА (от Светы):\n\n{r_pub['final_content']}")
 
-        # Сохраняем фидбек в память агентов на будущее
         if feedback:
             for agent_id in ["copywriter", "instagram_writer", "humanizer"]:
                 mem = memory_utils.load(agent_id)
-                memory_utils.add_feedback(mem, "Дмитрий (пользователь)", feedback, topic)
+                memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
                 memory_utils.save(agent_id, mem)
 
-        # Сохраняем тему и предлагаем доработку
         user_data["last_post_topic"] = topic
         user_data["waiting_feedback"] = False
 
-        keyboard = [[InlineKeyboardButton("🔄 Доработать пост", callback_data="revise")]]
+        keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="revise")]]
         await msg.reply_text(
             "Если что-то не так — нажми кнопку и отправь голосовое или текст с правками.",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -188,25 +214,25 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
 
     except Exception as e:
         logger.exception("Ошибка в _run_post")
-        await msg.reply_text(f"❌ Ошибка: {e}")
+        await msg.reply_text(f"Ошибка: {e}")
 
 
 async def _run_offer(msg: Message, product: str):
-    await msg.reply_text(f"👥 Нина и Виктор берутся за оффер:\n«{product}»\n\nЗаймёт ~1 минуту...")
+    await msg.reply_text(f"Нина и Виктор берутся за оффер:\n«{product}»\n\nЗаймёт ~1 минуту...")
     try:
-        await msg.reply_text("🔍 Нина Соколова — сначала разберусь кто эти люди и что им реально нужно...")
+        await msg.reply_text("Нина Соколова — анализирую аудиторию под этот продукт...")
         r_analyst = analyst.run(product, GEMINI_API_KEY)
-        await msg.reply_text("🔍 Нина: Готово. Виктор, передаю тебе анализ — смотри особенно на страхи и триггеры.")
+        await msg.reply_text("Нина: Готово. Виктор, передаю анализ.")
 
-        await msg.reply_text("🏆 Виктор Громов — получил, Нина. Строю оффер по Hormozi...")
+        await msg.reply_text("Виктор Самойлов — строю оффер по Хормози...")
         r_offer = offer_architect.run(product, r_analyst["analysis"], GEMINI_API_KEY)
 
-        await msg.reply_text("━━━━━━━━━━━━━━━━━━━\n✅ Виктор сдал оффер\n━━━━━━━━━━━━━━━━━━━")
-        await _send(msg, f"🏆 ОФФЕР — {product.upper()}\n\n{r_offer['offer']}")
+        await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nВиктор сдал оффер\n━━━━━━━━━━━━━━━━━━━")
+        await _send(msg, f"ОФФЕР — {product.upper()}\n\n{r_offer['offer']}")
 
     except Exception as e:
         logger.exception("Ошибка в _run_offer")
-        await msg.reply_text(f"❌ Ошибка: {e}")
+        await msg.reply_text(f"Ошибка: {e}")
 
 
 async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,7 +241,7 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Укажи тему после команды.\nПример: /post практика Танец Души")
         return
     if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
         return
     await _run_post(update.message, topic, context.user_data)
 
@@ -226,7 +252,7 @@ async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Укажи продукт: /offer Личная сессия с Дмитрием")
         return
     if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
         return
     await _run_offer(update.message, product)
 
@@ -234,26 +260,24 @@ async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     focus = " ".join(context.args).strip() if context.args else ""
     if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY не задан в .env")
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
         return
 
-    if focus:
-        await update.message.reply_text(f"🔧 Алекс Громов — разберу команду с фокусом на:\n«{focus}»\n\nЧитаю память всех агентов...")
-    else:
-        await update.message.reply_text("🔧 Алекс Громов — провожу полный аудит команды. Читаю память каждого агента, ищу слабые места...")
-
+    await update.message.reply_text(
+        f"Алекс Громов — аудит команды{f' с фокусом: «{focus}»' if focus else ''}..."
+    )
     try:
         r = team_architect.run(GEMINI_API_KEY, focus=focus or None)
-        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\n🔧 Алекс Громов — Аудит команды\n━━━━━━━━━━━━━━━━━━━")
+        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nАлекс Громов — Аудит команды\n━━━━━━━━━━━━━━━━━━━")
         await _send(update.message, r["audit"])
     except Exception as e:
         logger.exception("Ошибка в /architect")
-        await update.message.reply_text(f"❌ Ошибка: {e}")
+        await update.message.reply_text(f"Ошибка: {e}")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👥 SMM-команда Дмитрия Сучкова\n\n"
+        "SMM-команда Дмитрия Сучкова\n\n"
         "Команды:\n\n"
         "/post тема — полный цикл создания контента\n"
         "Пример: /post практика Танец Души\n\n"
@@ -261,18 +285,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Пример: /offer Личная сессия с Дмитрием\n\n"
         "/architect — аудит команды\n"
         "/architect вопрос — аудит с фокусом\n\n"
-        "После готового поста нажми '🔄 Доработать пост' и отправь голосовое или текст с правками."
+        "Или просто напиши текстом или голосовым что нужно сделать.\n"
+        "После готового поста нажми «Доработать пост» и отправь правки."
     )
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY не задан")
+        await update.message.reply_text("GEMINI_API_KEY не задан")
         return
 
-    # Режим доработки поста
     if context.user_data.get("waiting_feedback"):
-        await update.message.reply_text("🎤 Получил правки голосом. Расшифровываю...")
+        await update.message.reply_text("Получил правки голосом. Расшифровываю...")
         voice = update.message.voice
         file = await context.bot.get_file(voice.file_id)
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
@@ -283,13 +307,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["waiting_feedback"] = False
             context.user_data["pending_feedback"] = feedback
             topic = context.user_data.get("last_post_topic", "")
-            keyboard = [[InlineKeyboardButton("✅ Доработать пост", callback_data="confirm_revise")]]
+            keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="confirm_revise")]]
             await update.message.reply_text(
-                f"📝 Твои правки:\n\n{feedback}\n\nТема: «{topic}»",
+                f"Твои правки:\n\n{feedback}\n\nТема: «{topic}»",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка: {e}")
+            await update.message.reply_text(f"Ошибка: {e}")
         finally:
             try:
                 os.unlink(tmp_path)
@@ -297,8 +321,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         return
 
-    # Обычная расшифровка
-    await update.message.reply_text("🎤 Получил голосовое. Расшифровываю...")
+    await update.message.reply_text("Получил голосовое. Расшифровываю...")
     voice = update.message.voice
     file = await context.bot.get_file(voice.file_id)
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
@@ -306,15 +329,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tmp_path = tmp.name
     try:
         transcript = await _transcribe_voice(tmp_path)
-        await update.message.reply_text(f"📝 Расшифровка:\n\n{transcript}")
+        await update.message.reply_text(f"Расшифровка:\n\n{transcript}")
+        # Сохраняем полный текст в user_data — без обрезки
+        _store_topic(context.user_data, "voice_post", transcript)
+        _store_topic(context.user_data, "voice_offer", transcript)
         keyboard = [
-            [InlineKeyboardButton("✍️ Создать пост", callback_data="post:" + _fit_bytes(transcript, "post:"))],
-            [InlineKeyboardButton("🏆 Создать оффер", callback_data="ofr:" + _fit_bytes(transcript, "ofr:"))],
+            [InlineKeyboardButton("Создать пост", callback_data="post:voice")],
+            [InlineKeyboardButton("Создать оффер", callback_data="ofr:voice")],
         ]
         await update.message.reply_text("Что делать с этим текстом?", reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         logger.exception("Ошибка при обработке голосового")
-        await update.message.reply_text(f"❌ Не удалось расшифровать: {e}")
+        await update.message.reply_text(f"Не удалось расшифровать: {e}")
     finally:
         try:
             os.unlink(tmp_path)
@@ -322,22 +348,78 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def handle_text_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Принимает текстовые правки когда бот ждёт фидбек."""
-    if not context.user_data.get("waiting_feedback"):
+def _detect_intent(text: str) -> str:
+    """Определяет намерение пользователя: 'post', 'offer' или 'unknown'."""
+    t = text.lower()
+    offer_keywords = ["оффер", "продающ", "предложени", "продай", "продаж"]
+    post_keywords = ["пост", "текст", "напиши", "создай", "сделай", "статью", "контент"]
+    if any(k in t for k in offer_keywords):
+        return "offer"
+    if any(k in t for k in post_keywords):
+        return "post"
+    return "unknown"
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает любое текстовое сообщение — правки или свободный запрос."""
+    text = update.message.text.strip()
+    if not text:
         return
-    feedback = update.message.text.strip()
-    topic = context.user_data.get("last_post_topic", "")
-    if not topic:
-        await update.message.reply_text("Нет сохранённого поста для доработки. Сначала создай пост через /post.")
+
+    # Режим ожидания правок
+    if context.user_data.get("waiting_feedback"):
+        topic = context.user_data.get("last_post_topic", "")
+        if not topic:
+            await update.message.reply_text(
+                "Нет сохранённого поста для доработки. Сначала создай пост через /post или текстом."
+            )
+            return
+        context.user_data["waiting_feedback"] = False
+        context.user_data["pending_feedback"] = text
+        keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="confirm_revise")]]
+        await update.message.reply_text(
+            f"Твои правки:\n\n{text}\n\nТема: «{topic}»",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
-    context.user_data["waiting_feedback"] = False
-    context.user_data["pending_feedback"] = feedback
-    keyboard = [[InlineKeyboardButton("✅ Доработать пост", callback_data="confirm_revise")]]
-    await update.message.reply_text(
-        f"📝 Твои правки:\n\n{feedback}\n\nТема: «{topic}»",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+
+    # Свободный запрос — определяем намерение
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    intent = _detect_intent(text)
+
+    if intent == "post":
+        # Убираем ключевые слова-команды из темы если они в начале
+        topic = text
+        for prefix in ["напиши пост про ", "напиши пост о ", "создай пост про ", "создай пост о ",
+                        "напиши пост ", "создай пост ", "пост про ", "пост о ", "пост "]:
+            if topic.lower().startswith(prefix):
+                topic = topic[len(prefix):]
+                break
+        await _run_post(update.message, topic, context.user_data)
+
+    elif intent == "offer":
+        product = text
+        for prefix in ["создай оффер для ", "создай оффер на ", "оффер для ", "оффер на ", "оффер "]:
+            if product.lower().startswith(prefix):
+                product = product[len(prefix):]
+                break
+        await _run_offer(update.message, product)
+
+    else:
+        # Намерение неясно — сохраняем текст и предлагаем выбор
+        _store_topic(context.user_data, "text_post", text)
+        _store_topic(context.user_data, "text_offer", text)
+        keyboard = [
+            [InlineKeyboardButton("Создать пост", callback_data="post:text")],
+            [InlineKeyboardButton("Создать оффер", callback_data="ofr:text")],
+        ]
+        await update.message.reply_text(
+            f"Понял: «{text}»\n\nЧто сделать?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,11 +430,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "revise":
         topic = context.user_data.get("last_post_topic", "")
         if not topic:
-            await query.edit_message_text("Нет сохранённого поста. Сначала создай пост через /post.")
+            await query.edit_message_text("Нет сохранённого поста. Сначала создай пост.")
             return
         context.user_data["waiting_feedback"] = True
         await query.edit_message_text(
-            f"🔄 Доработка поста по теме «{topic}»\n\n"
+            f"Доработка поста по теме «{topic}»\n\n"
             "Отправь голосовое или напиши текстом — что именно изменить."
         )
 
@@ -360,20 +442,28 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topic = context.user_data.get("last_post_topic", "")
         feedback = context.user_data.get("pending_feedback", "")
         if not topic or not feedback:
-            await query.edit_message_text("Что-то пошло не так. Нажми '🔄 Доработать пост' ещё раз.")
+            await query.edit_message_text("Что-то пошло не так. Нажми «Доработать пост» ещё раз.")
             return
         context.user_data["pending_feedback"] = ""
-        await query.edit_message_text(f"✅ Запускаю доработку.\nПравки: {feedback}")
+        await query.edit_message_text(f"Запускаю доработку.\nПравки: {feedback}")
         await _run_post(query.message, topic, context.user_data, feedback=feedback)
 
     elif data.startswith("post:"):
-        topic = data[5:]
-        await query.edit_message_text(f"✅ Запускаю пост по теме:\n«{topic}»")
+        key = data[5:]  # "voice" или "text"
+        topic = _get_topic(context.user_data, f"{key}_post") or _get_topic(context.user_data, key)
+        if not topic:
+            await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
+            return
+        await query.edit_message_text(f"Запускаю пост по теме:\n«{topic}»")
         await _run_post(query.message, topic, context.user_data)
 
     elif data.startswith("ofr:"):
-        product = data[4:]
-        await query.edit_message_text(f"✅ Запускаю оффер для:\n«{product}»")
+        key = data[4:]  # "voice" или "text"
+        product = _get_topic(context.user_data, f"{key}_offer") or _get_topic(context.user_data, key)
+        if not product:
+            await query.edit_message_text("Продукт не найден. Попробуй ещё раз.")
+            return
+        await query.edit_message_text(f"Запускаю оффер для:\n«{product}»")
         await _run_offer(query.message, product)
 
 
@@ -397,7 +487,7 @@ def main():
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_feedback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     print("Бот запущен.")
