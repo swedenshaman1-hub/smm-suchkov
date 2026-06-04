@@ -135,7 +135,8 @@ INSTAGRAM-ПАКЕТ КАТИ (итерация {iteration}):
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
 
-    accepted = "Готов к очеловечиванию" in result_text or ("РЕШЕНИЕ INSTAGRAM: ПРИНЯТО" in result_text and "РЕШЕНИЕ INSTAGRAM: ОТКЛОНЕНО" not in result_text)
+    accepted = "готов к очеловечиванию" in result_text.lower() or \
+               ("РЕШЕНИЕ INSTAGRAM: ПРИНЯТО" in result_text and "РЕШЕНИЕ INSTAGRAM: ОТКЛОНЕНО" not in result_text)
 
     if not accepted:
         reflection_text = gemini_call(

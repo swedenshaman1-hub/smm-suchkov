@@ -163,7 +163,8 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
 
-    accepted = ("готов" in result_text.lower() and "очеловечиванию" in result_text.lower()) or \
+    accepted = "готовы к очеловечиванию" in result_text.lower() or \
+               "вариант готов к очеловечиванию" in result_text.lower() or \
                ("РЕШЕНИЕ: ПРИНЯТО" in result_text and "РЕШЕНИЕ: ОТКЛОНЕНО" not in result_text)
 
     if not accepted:

@@ -25,9 +25,9 @@ SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор SMM-к
 6. Игорь Орлов — Telegram-редактор
 7. Лена Волкова — Instagram-редактор
 8. Даша Козлова — Очеловечиватель
-9. Рита — Публикатор
+9. Света Громова — Публикатор
 10. Виктор Самойлов — Архитектор оффера
-11. Соня — SEO/охваты (если есть)
+11. Павел Крылов — AI-архитектор (улучшение промптов, аудит системы)
 
 ТВОИ ЗАДАЧИ:
 
@@ -63,7 +63,7 @@ SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор SMM-к
 AGENT_IDS = [
     "analyst", "strategist", "marketer", "copywriter",
     "instagram_writer", "editor", "instagram_editor",
-    "humanizer", "publisher", "offer_architect"
+    "humanizer", "publisher", "offer_architect", "ai_architect"
 ]
 
 AGENT_NAMES = {
@@ -75,8 +75,9 @@ AGENT_NAMES = {
     "editor": "Игорь Орлов (Редактор TG)",
     "instagram_editor": "Лена Волкова (Редактор IG)",
     "humanizer": "Даша Козлова (Очеловечиватель)",
-    "publisher": "Рита (Публикатор)",
+    "publisher": "Света Громова (Публикатор)",
     "offer_architect": "Виктор Самойлов (Архитектор оффера)",
+    "ai_architect": "Павел Крылов (AI-архитектор)",
 }
 
 

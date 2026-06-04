@@ -140,7 +140,8 @@ SYSTEM_PROMPT = """Ты — Олег Савин, маркетолог в ком�
 Только русский язык."""
 
 
-def run(topic: str, analyst_output: str, strategy_output: str, api_key: str) -> dict:
+def run(topic: str, analyst_output: str, strategy_output: str, api_key: str,
+        final_content: str = None) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
@@ -150,10 +151,20 @@ def run(topic: str, analyst_output: str, strategy_output: str, api_key: str) -> 
 {strategy_output[:1000]}
 
 АНАЛИЗ ЦА от Нины (боли, триггеры):
-{analyst_output[:600]}
+{analyst_output[:600]}"""
 
-Дай маркетинговую оценку по 5 разделам: виральный потенциал, коммерческий потенциал, позиционирование Дмитрия, рекомендации, итоговая оценка.
-Формат — строго по структуре промта."""
+    if final_content:
+        user_msg += f"""
+
+ФИНАЛЬНЫЙ КОНТЕНТ (от Даши, готов к публикации — оценивай именно его):
+{final_content[:1500]}
+
+Дай маркетинговую оценку по 5 разделам: виральный потенциал, коммерческий потенциал, позиционирование Дмитрия, рекомендации, итоговая оценка."""
+    else:
+        user_msg += """
+
+Финальный текст ещё не готов — оцени стратегический потенциал темы и ТЗ по 5 разделам.
+Фиксируй явно: «предварительная оценка, финального текста нет»."""
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=2000, temperature=0.7)
 
