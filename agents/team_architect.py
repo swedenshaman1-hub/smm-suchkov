@@ -29,6 +29,7 @@ SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор SMM-к
 10. Виктор Самойлов — Архитектор оффера
 11. Павел Крылов — AI-архитектор (улучшение промптов, аудит системы)
 12. Соня Белова — Контент-планировщик (контент-план, баланс тем и форматов)
+13. Миша Захаров — Менеджер комьюнити (комментарии, директ, лиды, отчёты по реакциям)
 
 ТВОИ ЗАДАЧИ:
 
@@ -64,7 +65,8 @@ SYSTEM_PROMPT = """Ты — Алекс Громов, Архитектор SMM-к
 AGENT_IDS = [
     "analyst", "strategist", "marketer", "copywriter",
     "instagram_writer", "editor", "instagram_editor",
-    "humanizer", "publisher", "offer_architect", "ai_architect", "content_planner"
+    "humanizer", "publisher", "offer_architect", "ai_architect", "content_planner",
+    "community_manager"
 ]
 
 AGENT_NAMES = {
@@ -80,6 +82,7 @@ AGENT_NAMES = {
     "offer_architect": "Виктор Самойлов (Архитектор оффера)",
     "ai_architect": "Павел Крылов (AI-архитектор)",
     "content_planner": "Соня Белова (Контент-планировщик)",
+    "community_manager": "Миша Захаров (Менеджер комьюнити)",
 }
 
 

@@ -30,7 +30,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agents import (
     analyst, strategist, marketer, copywriter,
     instagram_writer, editor, instagram_editor,
-    humanizer, publisher, offer_architect, team_architect, content_planner
+    humanizer, publisher, offer_architect, team_architect, content_planner,
+    community_manager
 )
 from agents import memory_utils
 
@@ -290,6 +291,63 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Ошибка: {e}")
 
 
+async def cmd_community(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Миша Захаров — Менеджер комьюнити\n\n"
+            "Использование:\n"
+            "/community <публикация> | <комментарии>\n"
+            "/community report <публикация> | <комментарии>\n"
+            "/community direct <контекст> | <сообщение>\n"
+            "/community help <контекст> | <комментарий для Дмитрия>"
+        )
+        return
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    mode = "comments"
+    raw = " ".join(args)
+
+    if raw.startswith("report "):
+        mode = "report"
+        raw = raw[7:]
+    elif raw.startswith("direct "):
+        mode = "direct"
+        raw = raw[7:]
+    elif raw.startswith("help "):
+        mode = "help_dmitry"
+        raw = raw[5:]
+
+    parts = raw.split("|", 1)
+    task = parts[0].strip()
+    extra = parts[1].strip() if len(parts) > 1 else None
+
+    mode_labels = {
+        "comments": "обрабатываю комментарии",
+        "report": "составляю отчёт по реакциям",
+        "direct": "готовлю ответ в директ",
+        "help_dmitry": "готовлю варианты ответа для Дмитрия",
+    }
+    await update.message.reply_text(f"Миша — {mode_labels.get(mode, mode)}...")
+
+    try:
+        r = community_manager.run(
+            GEMINI_API_KEY,
+            task=task,
+            comments=extra if mode in ("comments", "report") else None,
+            direct_message=extra if mode in ("direct", "help_dmitry") else None,
+            mode=mode,
+        )
+        await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nМиша — Комьюнити\n━━━━━━━━━━━━━━━━━━━")
+        await _send(update.message, r["result"])
+    except Exception as e:
+        logger.exception("Ошибка в /community")
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
 async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     focus = " ".join(context.args).strip() if context.args else ""
     if not GEMINI_API_KEY:
@@ -519,6 +577,7 @@ def main():
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CommandHandler("community", cmd_community))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
