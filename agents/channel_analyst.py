@@ -62,7 +62,7 @@ def run(chat_id: int, api_key: str, n_posts: int = 400, n_days: int = 90) -> dic
 
 Проанализируй эти реальные данные по пунктам из инструкции."""
 
-    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT, user_msg, max_tokens=4000, temperature=0.4)
+    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT, user_msg, max_tokens=8000, temperature=0.4)
 
     return {
         "agent": "Аналитик канала",
