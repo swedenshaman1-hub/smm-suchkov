@@ -98,11 +98,14 @@ async def _transcribe_voice(file_path: str) -> str:
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
     client = google_genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
-            """Расшифруй это голосовое сообщение на русском языке.
+    attempts = 5
+    for attempt in range(attempts):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    genai_types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg"),
+                    """Расшифруй это голосовое сообщение на русском языке.
 
 Контекст: говорит Дмитрий Сучков — психолог, автор метода ГРЭМ, ведёт практику «Танец Души». Работает с предпринимателями и руководителями. Часто упоминает: ГРЭМ, Танец Души, сессии, выгорание, родовые программы, телесные практики.
 
@@ -111,9 +114,14 @@ async def _transcribe_voice(file_path: str) -> str:
 - Правильно расставляй знаки препинания
 - Имена собственные и названия практик пиши с заглавной буквы: «Танец Души», «ГРЭМ»
 - Только текст расшифровки, без комментариев и пояснений"""
-        ]
-    )
-    return response.text.strip()
+                ]
+            )
+            return response.text.strip()
+        except Exception as e:
+            if ("503" in str(e) or "UNAVAILABLE" in str(e)) and attempt < attempts - 1:
+                await asyncio.sleep(10 * (attempt + 1))
+                continue
+            raise
 
 
 async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = None):
