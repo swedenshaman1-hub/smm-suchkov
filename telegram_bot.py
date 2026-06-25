@@ -642,8 +642,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcript = await _transcribe_voice(tmp_path)
         await update.message.reply_text(f"Расшифровка:\n\n{transcript}")
 
-        if _detect_intent(transcript) == "channelstats":
+        voice_intent = _detect_intent(transcript)
+        if voice_intent == "channelstats":
             await _run_channelstats(update.message)
+            return
+        if voice_intent == "promptcheck":
+            await _run_promptcheck(update.message)
             return
 
         # Сохраняем полный текст в user_data — без обрезки
@@ -665,13 +669,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _detect_intent(text: str) -> str:
-    """Определяет намерение пользователя: 'post', 'offer', 'channelstats' или 'unknown'."""
+    """Определяет намерение пользователя: 'post', 'offer', 'channelstats', 'promptcheck' или 'unknown'."""
     t = text.lower()
+    promptcheck_keywords = [
+        "промпт", "проверь команду", "проверь агентов", "аудит промпт", "обнови промпт",
+        "проверь, как пишут агенты", "сверь данные с тем что выдают",
+    ]
     channelstats_keywords = [
         "статистик", "канал", "подписчик", "просмотр", "отчёт по кана", "отчет по кана",
     ]
     offer_keywords = ["оффер", "продающ", "предложени", "продай", "продаж"]
     post_keywords = ["пост", "текст", "напиши", "создай", "сделай", "статью", "контент"]
+    if any(k in t for k in promptcheck_keywords):
+        return "promptcheck"
     if any(k in t for k in channelstats_keywords):
         return "channelstats"
     if any(k in t for k in offer_keywords):
@@ -711,7 +721,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     intent = _detect_intent(text)
 
-    if intent == "channelstats":
+    if intent == "promptcheck":
+        await _run_promptcheck(update.message)
+
+    elif intent == "channelstats":
         await _run_channelstats(update.message)
 
     elif intent == "post":
