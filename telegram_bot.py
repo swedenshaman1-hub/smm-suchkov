@@ -238,10 +238,28 @@ async def _transcribe_voice(file_path: str) -> str:
             raise
 
 
+def _format_choice_keyboard(key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Только Telegram-пост", callback_data=f"fmt:tg:{key}")],
+        [InlineKeyboardButton("📷 Instagram — выбрать формат", callback_data=f"fmtmenu:{key}")],
+        [InlineKeyboardButton("✨ Всё сразу (TG + весь Instagram)", callback_data=f"fmt:all:{key}")],
+    ])
+
+
+def _instagram_format_keyboard(key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Только пост", callback_data=f"fmt:ig_post:{key}")],
+        [InlineKeyboardButton("Только сторис", callback_data=f"fmt:ig_stories:{key}")],
+        [InlineKeyboardButton("Только карусель", callback_data=f"fmt:ig_carousel:{key}")],
+        [InlineKeyboardButton("Только Reels", callback_data=f"fmt:ig_reels:{key}")],
+        [InlineKeyboardButton("Весь Instagram-пакет", callback_data=f"fmt:ig_all:{key}")],
+    ])
+
+
 _active_pipelines = set()
 
 
-async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = None):
+async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
     chat_id = msg.chat_id
     if chat_id in _active_pipelines:
         await msg.reply_text(
@@ -251,12 +269,12 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         return
     _active_pipelines.add(chat_id)
     try:
-        await _run_post_inner(msg, topic, user_data, feedback)
+        await _run_post_inner(msg, topic, user_data, feedback, delivery_filter)
     finally:
         _active_pipelines.discard(chat_id)
 
 
-async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None):
+async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
     if feedback:
         await msg.reply_text(
             f"Команда дорабатывает пост по теме:\n«{topic}»\n\nПравки: {feedback}\n\nЗаймёт 2–4 минуты..."
@@ -386,10 +404,24 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             GEMINI_API_KEY
         )
 
+        ig_sections_to_show = {
+            "all": {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"},
+            "ig_all": {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"},
+            "ig_post": {"ПОСТ"},
+            "ig_stories": {"СТОРИС"},
+            "ig_carousel": {"КАРУСЕЛЬ"},
+            "ig_reels": {"REELS"},
+            "tg": set(),
+        }.get(delivery_filter, {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"})
+        show_tg = delivery_filter in ("all", "tg")
+
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
-        await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
-        for label, content in _split_instagram_sections(r_human["instagram_humanized"]):
-            await _send(msg, f"INSTAGRAM — {label} (от {ROLES['Даша']}):\n\n{content}")
+        if show_tg:
+            await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
+        if ig_sections_to_show:
+            for label, content in _split_instagram_sections(r_human["instagram_humanized"]):
+                if label in ig_sections_to_show:
+                    await _send(msg, f"INSTAGRAM — {label} (от {ROLES['Даша']}):\n\n{content}")
         await _send(msg, f"ФИНАЛЬНАЯ ПРОВЕРКА (от {ROLES['Света']}):\n\n{r_pub['final_content']}")
 
         if feedback:
@@ -768,7 +800,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if topic.lower().startswith(prefix):
                 topic = topic[len(prefix):]
                 break
-        await _run_post(update.message, topic, context.user_data)
+        _store_topic(context.user_data, "text_post", topic)
+        await update.message.reply_text(
+            f"Тема: «{topic}»\n\nЧто показать в итоге? (команда всё равно полностью работает и анализирует — это влияет только на то, что пришлёт бот)",
+            reply_markup=_format_choice_keyboard("text")
+        )
 
     elif intent == "offer":
         product = text
@@ -824,8 +860,30 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not topic:
             await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
             return
+        await query.edit_message_text(
+            f"Тема: «{topic}»\n\nЧто показать в итоге?",
+            reply_markup=_format_choice_keyboard(key)
+        )
+
+    elif data.startswith("fmtmenu:"):
+        key = data[len("fmtmenu:"):]
+        topic = _get_topic(context.user_data, f"{key}_post") or _get_topic(context.user_data, key)
+        if not topic:
+            await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
+            return
+        await query.edit_message_text(
+            f"Тема: «{topic}»\n\nКакой формат Instagram показать?",
+            reply_markup=_instagram_format_keyboard(key)
+        )
+
+    elif data.startswith("fmt:"):
+        _, fmt, key = data.split(":", 2)
+        topic = _get_topic(context.user_data, f"{key}_post") or _get_topic(context.user_data, key)
+        if not topic:
+            await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
+            return
         await query.edit_message_text(f"Запускаю пост по теме:\n«{topic}»")
-        await _run_post(query.message, topic, context.user_data)
+        await _run_post(query.message, topic, context.user_data, delivery_filter=fmt)
 
     elif data.startswith("ofr:"):
         key = data[4:]  # "voice" или "text"
