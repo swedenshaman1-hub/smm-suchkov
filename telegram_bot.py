@@ -238,24 +238,6 @@ async def _transcribe_voice(file_path: str) -> str:
             raise
 
 
-def _format_choice_keyboard(key: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 Только Telegram-пост", callback_data=f"fmt:tg:{key}")],
-        [InlineKeyboardButton("📷 Instagram — выбрать формат", callback_data=f"fmtmenu:{key}")],
-        [InlineKeyboardButton("✨ Всё сразу (TG + весь Instagram)", callback_data=f"fmt:all:{key}")],
-    ])
-
-
-def _instagram_format_keyboard(key: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Только пост", callback_data=f"fmt:ig_post:{key}")],
-        [InlineKeyboardButton("Только сторис", callback_data=f"fmt:ig_stories:{key}")],
-        [InlineKeyboardButton("Только карусель", callback_data=f"fmt:ig_carousel:{key}")],
-        [InlineKeyboardButton("Только Reels", callback_data=f"fmt:ig_reels:{key}")],
-        [InlineKeyboardButton("Весь Instagram-пакет", callback_data=f"fmt:ig_all:{key}")],
-    ])
-
-
 _active_pipelines = set()
 
 
@@ -801,10 +783,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 topic = topic[len(prefix):]
                 break
         _store_topic(context.user_data, "text_post", topic)
-        await update.message.reply_text(
-            f"Тема: «{topic}»\n\nЧто показать в итоге? (команда всё равно полностью работает и анализирует — это влияет только на то, что пришлёт бот)",
-            reply_markup=_format_choice_keyboard("text")
-        )
+        await update.message.reply_text(f"Запускаю пост по теме:\n«{topic}»")
+        await _run_post(update.message, topic, context.user_data)
 
     elif intent == "offer":
         product = text
@@ -860,30 +840,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not topic:
             await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
             return
-        await query.edit_message_text(
-            f"Тема: «{topic}»\n\nЧто показать в итоге?",
-            reply_markup=_format_choice_keyboard(key)
-        )
-
-    elif data.startswith("fmtmenu:"):
-        key = data[len("fmtmenu:"):]
-        topic = _get_topic(context.user_data, f"{key}_post") or _get_topic(context.user_data, key)
-        if not topic:
-            await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
-            return
-        await query.edit_message_text(
-            f"Тема: «{topic}»\n\nКакой формат Instagram показать?",
-            reply_markup=_instagram_format_keyboard(key)
-        )
-
-    elif data.startswith("fmt:"):
-        _, fmt, key = data.split(":", 2)
-        topic = _get_topic(context.user_data, f"{key}_post") or _get_topic(context.user_data, key)
-        if not topic:
-            await query.edit_message_text("Тема не найдена. Попробуй ещё раз.")
-            return
         await query.edit_message_text(f"Запускаю пост по теме:\n«{topic}»")
-        await _run_post(query.message, topic, context.user_data, delivery_filter=fmt)
+        await _run_post(query.message, topic, context.user_data)
 
     elif data.startswith("ofr:"):
         key = data[4:]  # "voice" или "text"
