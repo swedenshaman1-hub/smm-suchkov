@@ -55,8 +55,43 @@ def _get_topic(user_data: dict, key: str) -> str:
 
 async def _send(msg: Message, text: str):
     limit = 4000
+    listen_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔊 Слушать", callback_data="tts")]])
     for i in range(0, len(text), limit):
-        await msg.reply_text(text[i:i + limit])
+        chunk = text[i:i + limit]
+        if chunk.strip():
+            await msg.reply_text(chunk, reply_markup=listen_keyboard)
+        else:
+            await msg.reply_text(chunk)
+
+
+async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    text = query.message.text or ""
+    if not text.strip():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        audio_path = await loop.run_in_executor(None, _text_to_speech, text)
+        with open(audio_path, "rb") as f:
+            await query.message.reply_audio(f, title="Озвучка сообщения")
+    except Exception as e:
+        logger.exception("Ошибка озвучки")
+        await query.message.reply_text(f"Не удалось озвучить: {e}")
+    finally:
+        try:
+            os.unlink(audio_path)
+        except Exception:
+            pass
+
+
+def _text_to_speech(text: str) -> str:
+    from gtts import gTTS
+    tts = gTTS(text=text[:4500], lang="ru")
+    fd, path = tempfile.mkstemp(suffix=".mp3")
+    os.close(fd)
+    tts.save(path)
+    return path
 
 
 async def _transcribe_voice(file_path: str) -> str:
@@ -731,6 +766,7 @@ def main():
     app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
+    app.add_handler(CallbackQueryHandler(handle_tts, pattern="^tts$"))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
