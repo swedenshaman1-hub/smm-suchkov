@@ -238,9 +238,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         final_tg = r_copy["texts"]
 
         if not r_editor["accepted"]:
-            await msg.reply_text(
-                f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{_clean_markdown(r_editor['review'])}\n\nПеределай."
-            )
+            await _send(msg, f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{r_editor['review']}\n\nПеределай.")
             await msg.reply_text(f"{ROLES['Маша']}: Поняла, исправляю...")
             r_copy2 = await _run_blocking(
                 copywriter.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
@@ -266,7 +264,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         final_ig = r_insta["texts"]
 
         if not r_ig_ed["accepted"]:
-            await msg.reply_text(f"{ROLES['Лена']}: Катя, нужно переделать.\n\n{_clean_markdown(r_ig_ed['review'])}")
+            await _send(msg, f"{ROLES['Лена']}: Катя, нужно переделать.\n\n{r_ig_ed['review']}")
             await msg.reply_text(f"{ROLES['Катя']}: Хорошо, сейчас исправлю...")
             r_insta2 = await _run_blocking(
                 instagram_writer.run, topic, r_analyst["analysis"], r_strategist["strategy"],
