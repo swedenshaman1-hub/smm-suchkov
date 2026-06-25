@@ -128,18 +128,25 @@ def _text_to_speech(text: str) -> str:
     """Озвучивает текст через Gemini TTS (надёжнее на облачных серверах, чем gTTS,
     который ходит на неофициальный эндпоинт Google Translate и часто блокирует datacenter IP)."""
     client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=60_000))
-    response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-tts",
-        contents=text[:3000],
-        config=genai_types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=genai_types.SpeechConfig(
-                voice_config=genai_types.VoiceConfig(
-                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Kore")
-                )
-            ),
-        ),
-    )
+    for attempt in range(2):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-preview-tts",
+                contents=text[:3000],
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=genai_types.SpeechConfig(
+                        voice_config=genai_types.VoiceConfig(
+                            prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Kore")
+                        )
+                    ),
+                ),
+            )
+            break
+        except Exception as e:
+            if attempt == 0 and ("DEADLINE_EXCEEDED" in str(e) or "504" in str(e)):
+                continue
+            raise
     pcm_data = response.candidates[0].content.parts[0].inline_data.data
 
     fd, path = tempfile.mkstemp(suffix=".wav")

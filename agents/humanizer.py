@@ -130,43 +130,33 @@ SYSTEM_PROMPT = """Ты — Даша Козлова, последний филь
 Только русский язык."""
 
 
-def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
-    memory = memory_utils.load(AGENT_ID)
-    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
-
+def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_key: str) -> str:
     user_msg = f"""Тема: «{topic}»
 
-СОПРОВОДИТЕЛЬНАЯ ЗАПИСКА ОТ ИГОРЯ (Telegram):
+СОПРОВОДИТЕЛЬНАЯ ЗАПИСКА (платформа: {platform_label}):
 Что проверено: стратегия, платформа, авторский голос.
 Что не трогать: стратегический угол, ключевые тезисы, анти-язык.
 Что можно: ритм, интонация, детали, разговорные обороты.
 
-TELEGRAM-ТЕКСТ (одобрен Игорем Орловым):
-{telegram_text}
+ТЕКСТ (одобрен редактором):
+{text}
 
----
+Очеловечь этот текст — убери AI-паттерны, добавь живость, сохрани все смыслы и структуру.
+Начинай с очевидно искусственных мест.
 
-СОПРОВОДИТЕЛЬНАЯ ЗАПИСКА ОТ ЛЕНЫ (Instagram):
-Что проверено: стратегия, платформа, связность пакета, авторский голос.
-Что не трогать: стратегический угол, ключевые тезисы, анти-язык.
-Что можно: ритм, интонация, детали, разговорные обороты.
+Выведи ТОЛЬКО готовый финальный текст для публикации — без заголовков, без пометок
+«очеловечено», без комментариев о том, что ты правила. Просто чистый текст, готовый к копированию и публикации как есть."""
 
-INSTAGRAM-ТЕКСТ (одобрен Леной Волковой):
-{instagram_text}
+    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85,
+                        disable_thinking=True).strip()
 
-Очеловечь оба текста — убери AI-паттерны, добавь живость, сохрани все смыслы и структуру.
-Начинай с очевидно искусственных мест. Передавай с кратким комментарием что правила и почему.
 
-ОЧЕЛОВЕЧЕНО: TELEGRAM
-[текст]
+def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
+    memory = memory_utils.load(AGENT_ID)
+    system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
-ОЧЕЛОВЕЧЕНО: INSTAGRAM
-[текст]
-
-КОММЕНТАРИЙ ДАШИ:
-[что правила и почему]"""
-
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.85)
+    tg_humanized = _humanize_one("Telegram", telegram_text, topic, system, api_key)
+    ig_humanized = _humanize_one("Instagram", instagram_text, topic, system, api_key)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,
@@ -183,24 +173,10 @@ INSTAGRAM-ТЕКСТ (одобрен Леной Волковой):
     memory_utils.add_topic(memory, topic, "Очеловечено")
     memory_utils.save(AGENT_ID, memory)
 
-    # Разделяем Telegram и Instagram из ответа
-    tg_humanized = result_text
-    ig_humanized = result_text
-
-    if "ОЧЕЛОВЕЧЕНО: INSTAGRAM" in result_text:
-        parts = result_text.split("ОЧЕЛОВЕЧЕНО: INSTAGRAM")
-        tg_part = parts[0].replace("ОЧЕЛОВЕЧЕНО: TELEGRAM", "").strip()
-        ig_part = parts[1]
-        if "КОММЕНТАРИЙ ДАШИ" in ig_part:
-            ig_part = ig_part.split("КОММЕНТАРИЙ ДАШИ")[0]
-        tg_humanized = tg_part
-        ig_humanized = ig_part.strip()
-
     return {
         "agent": "Даша (Очеловечиватель)",
         "topic": topic,
         "telegram_humanized": tg_humanized,
         "instagram_humanized": ig_humanized,
-        "full_result": result_text,
         "new_lessons": new_lessons
     }
