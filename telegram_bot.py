@@ -81,12 +81,19 @@ async def _send(msg: Message, text: str):
     text = _clean_markdown(text)
     limit = 4000
     listen_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔊 Слушать", callback_data="tts")]])
-    for i in range(0, len(text), limit):
-        chunk = text[i:i + limit]
-        if chunk.strip():
-            await msg.reply_text(chunk, reply_markup=listen_keyboard)
-        else:
+
+    header = text.strip().splitlines()[0] if text.strip() else ""
+    is_header_line = header.endswith(":") and len(header) < 80
+
+    chunks = [text[i:i + limit] for i in range(0, len(text), limit)]
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, start=1):
+        if not chunk.strip():
             await msg.reply_text(chunk)
+            continue
+        if is_header_line and idx > 1:
+            chunk = f"{header} (часть {idx}/{total}):\n\n{chunk}"
+        await msg.reply_text(chunk, reply_markup=listen_keyboard)
 
 
 async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
