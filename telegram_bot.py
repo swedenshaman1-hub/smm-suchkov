@@ -187,7 +187,25 @@ async def _transcribe_voice(file_path: str) -> str:
             raise
 
 
+_active_pipelines = set()
+
+
 async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = None):
+    chat_id = msg.chat_id
+    if chat_id in _active_pipelines:
+        await msg.reply_text(
+            "Команда уже работает над предыдущим постом — подожди, пока он закончится, "
+            "прежде чем запускать новый (иначе агенты будут работать вдвойне и мешать друг другу)."
+        )
+        return
+    _active_pipelines.add(chat_id)
+    try:
+        await _run_post_inner(msg, topic, user_data, feedback)
+    finally:
+        _active_pipelines.discard(chat_id)
+
+
+async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None):
     if feedback:
         await msg.reply_text(
             f"Команда дорабатывает пост по теме:\n«{topic}»\n\nПравки: {feedback}\n\nЗаймёт 2–4 минуты..."
