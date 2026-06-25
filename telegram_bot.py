@@ -159,6 +159,20 @@ def _text_to_speech(text: str) -> str:
     return path
 
 
+def _extract_variant(text: str, letter: str) -> str:
+    """Достаёт текст конкретного варианта (А/Б) из ответа копирайтера, чтобы
+    дальше по цепочке передавался только выбранный вариант, а не оба сразу."""
+    if not letter:
+        return text
+    pattern = rf"ВАРИАНТ\s+{letter}\b.*?(?=ВАРИАНТ\s+[АБ]\b|ПОЧЕМУ\s+ЭТИ\s+ДВА\s+ВАРИАНТА|\Z)"
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    if not match:
+        return text
+    chunk = match.group(0).strip()
+    lines = chunk.split("\n", 1)
+    return lines[1].strip() if len(lines) > 1 else chunk
+
+
 async def _run_blocking(fn, *args, **kwargs):
     """Выполняет блокирующий (синхронный) вызов агента в отдельном потоке,
     чтобы не замораживать цикл обработки событий бота (и его опрос Telegram)
@@ -238,10 +252,6 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
         await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
 
-        await msg.reply_text("Олег Савин — оцениваю маркетинговый потенциал...")
-        r_marketer = await _run_blocking(marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Олег']}:\n\n{r_marketer['marketing']}")
-
         if feedback:
             await msg.reply_text(
                 f"Маша Лебедева — учитываю правки, переписываю Telegram...\n"
@@ -260,7 +270,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 editor_feedback=feedback, iteration=2 if feedback else 1
             )),
             loop.run_in_executor(None, lambda: instagram_writer.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"], r_marketer["marketing"], GEMINI_API_KEY,
+                topic, r_analyst["analysis"], r_strategist["strategy"], "", GEMINI_API_KEY,
                 editor_feedback=feedback, iteration=2 if feedback else 1
             ))
         )
@@ -274,7 +284,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
             r_copy["texts"], GEMINI_API_KEY
         )
-        final_tg = r_copy["texts"]
+        final_tg = _extract_variant(r_copy["texts"], r_editor.get("chosen_variant"))
 
         if not r_editor["accepted"]:
             await _send(msg, f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{r_editor['review']}\n\nПеределай.")
@@ -287,13 +297,17 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
                 r_copy2["texts"], GEMINI_API_KEY, iteration=2
             )
-            final_tg = r_copy2["texts"]
+            final_tg = _extract_variant(r_copy2["texts"], r_editor2.get("chosen_variant"))
             await msg.reply_text(
                 f"{ROLES['Игорь']}: Теперь хорошо. Принято." if r_editor2["accepted"]
                 else f"{ROLES['Игорь']}: Не идеально, но принимаю."
             )
+            if r_editor2.get("chosen_variant"):
+                await msg.reply_text(f"Игорь выбрал вариант {r_editor2['chosen_variant']} для публикации.")
         else:
             await msg.reply_text(f"{ROLES['Игорь']}: С первого раза хорошо. Принято.")
+            if r_editor.get("chosen_variant"):
+                await msg.reply_text(f"Игорь выбрал вариант {r_editor['chosen_variant']} для публикации.")
 
         await msg.reply_text("Лена Волкова — проверяю Instagram-пакет Кати...")
         r_ig_ed = await _run_blocking(
@@ -307,7 +321,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await msg.reply_text(f"{ROLES['Катя']}: Хорошо, сейчас исправлю...")
             r_insta2 = await _run_blocking(
                 instagram_writer.run, topic, r_analyst["analysis"], r_strategist["strategy"],
-                r_marketer["marketing"], GEMINI_API_KEY,
+                "", GEMINI_API_KEY,
                 editor_feedback=r_ig_ed["review"], iteration=2
             )
             r_ig_ed2 = await _run_blocking(
@@ -324,6 +338,13 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
         r_human = await _run_blocking(humanizer.run, topic, final_tg, final_ig, GEMINI_API_KEY)
+
+        await msg.reply_text("Олег Савин — оцениваю виральный и коммерческий потенциал готового текста...")
+        r_marketer = await _run_blocking(
+            marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
+            final_content=f"TELEGRAM:\n{r_human['telegram_humanized']}\n\nINSTAGRAM:\n{r_human['instagram_humanized']}"
+        )
+        await _send(msg, f"{ROLES['Олег']}:\n\n{r_marketer['marketing']}")
 
         await msg.reply_text("Света Громова — финальная проверка и подготовка к публикации...")
         r_pub = await _run_blocking(

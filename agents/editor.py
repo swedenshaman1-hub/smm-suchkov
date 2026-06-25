@@ -3,6 +3,7 @@
 """
 
 import os
+import re
 from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
@@ -106,7 +107,7 @@ SYSTEM_PROMPT = """Ты — Игорь Орлов, редактор Telegram-к�
 
 ## Формат обратной связи
 
-Начало: выписанные из ТЗ ключевые параметры — стратегический угол, посыл, сопротивление, анти-язык, температура.
+Не пересказывай ТЗ Артёма целиком — Маша и Дмитрий его уже видели. Ссылайся на конкретный пункт коротко («по ТЗ — анти-язык», «по точке сопротивления») только там, где это нужно для аргумента.
 
 По каждому варианту отдельно (ВАРИАНТ А / ВАРИАНТ Б). По каждому пункту чеклиста:
 - ✓ Работает — одно предложение почему
@@ -159,7 +160,9 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 ДВА ВАРИАНТА TELEGRAM-ПОСТА от Маши (итерация {iteration}):
 {copywriter_output}
 
-Выпиши ключевые параметры из ТЗ Артёма. Проверь оба варианта по чеклисту (стратегия, платформа, авторский голос). Сравни варианты. Вынеси ВЕРДИКТ по каждому и ОБЩИЙ ВЕРДИКТ."""
+Проверь оба варианта по чеклисту (стратегия, платформа, авторский голос). Сравни варианты. Вынеси ВЕРДИКТ по каждому и ОБЩИЙ ВЕРДИКТ.
+
+В самом конце отдельной строкой укажи, какой вариант идёт в публикацию (даже если доработан): «РЕКОМЕНДУЕМЫЙ ВАРИАНТ: А» или «РЕКОМЕНДУЕМЫЙ ВАРИАНТ: Б» — с однострочным обоснованием почему именно этот."""
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.6)
 
@@ -187,4 +190,12 @@ def run(topic: str, analyst_output: str, strategy_output: str,
     memory_utils.add_topic(memory, topic, f"Итерация {iteration}, принято: {accepted}")
     memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Редактор", "topic": topic, "iteration": iteration, "accepted": accepted, "review": result_text}
+    chosen_variant = None
+    match = re.search(r"РЕКОМЕНДУЕМЫЙ ВАРИАНТ\s*:?\s*([АБ])\b", result_text, re.IGNORECASE)
+    if match:
+        chosen_variant = match.group(1).upper()
+
+    return {
+        "agent": "Редактор", "topic": topic, "iteration": iteration, "accepted": accepted,
+        "review": result_text, "chosen_variant": chosen_variant,
+    }

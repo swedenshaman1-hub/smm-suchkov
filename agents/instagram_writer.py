@@ -171,10 +171,15 @@ def run(topic: str, analyst_output: str, strategy_output: str, marketing_output:
 {strategy_output}
 
 ТЕЛЕСНЫЙ СЛЕД И ЯЗЫК КЛИЕНТА от Нины (используй напрямую):
-{analyst_output}
+{analyst_output}"""
+
+    if marketing_output:
+        user_msg += f"""
 
 МАРКЕТИНГОВЫЕ РЕКОМЕНДАЦИИ ОЛЕГА (учти при написании):
-{marketing_output}
+{marketing_output}"""
+
+    user_msg += """
 
 Напиши полный Instagram-пакет:
 1. ОСНОВНОЙ ПОСТ (500–900 символов, первая строка до «ещё» — крючок)
