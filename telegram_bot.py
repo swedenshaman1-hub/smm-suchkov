@@ -94,6 +94,14 @@ def _text_to_speech(text: str) -> str:
     return path
 
 
+async def _run_blocking(fn, *args, **kwargs):
+    """Выполняет блокирующий (синхронный) вызов агента в отдельном потоке,
+    чтобы не замораживать цикл обработки событий бота (и его опрос Telegram)
+    на те секунды-минуты, которые требует вызов Gemini."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
+
+
 async def _transcribe_voice(file_path: str) -> str:
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
@@ -136,15 +144,15 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
 
     try:
         await msg.reply_text("Нина Соколова — анализирую аудиторию...")
-        r_analyst = analyst.run(topic, GEMINI_API_KEY)
+        r_analyst = await _run_blocking(analyst.run, topic, GEMINI_API_KEY)
         await _send(msg, f"Нина:\n\n{_short(r_analyst['analysis'], 2000)}")
 
         await msg.reply_text("Артём Волков — строю стратегию...")
-        r_strategist = strategist.run(topic, r_analyst["analysis"], GEMINI_API_KEY)
+        r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
         await _send(msg, f"Артём:\n\n{_short(r_strategist['strategy'], 2000)}")
 
         await msg.reply_text("Олег Савин — оцениваю маркетинговый потенциал...")
-        r_marketer = marketer.run(topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
+        r_marketer = await _run_blocking(marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
         await _send(msg, f"Олег:\n\n{_short(r_marketer['marketing'], 1200)}")
 
         if feedback:
@@ -175,8 +183,8 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         )
 
         await msg.reply_text("Игорь Орлов — читаю оба варианта Маши...")
-        r_editor = editor.run(
-            topic, r_analyst["analysis"], r_strategist["strategy"],
+        r_editor = await _run_blocking(
+            editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
             r_copy["texts"], GEMINI_API_KEY
         )
         final_tg = r_copy["texts"]
@@ -186,12 +194,12 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
                 f"Игорь: Маша, не пойдёт. Вот что не так:\n\n{_short(r_editor['review'], 600)}\n\nПеределай."
             )
             await msg.reply_text("Маша: Поняла, исправляю...")
-            r_copy2 = copywriter.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
+            r_copy2 = await _run_blocking(
+                copywriter.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
                 editor_feedback=r_editor["review"], iteration=2
             )
-            r_editor2 = editor.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"],
+            r_editor2 = await _run_blocking(
+                editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
                 r_copy2["texts"], GEMINI_API_KEY, iteration=2
             )
             final_tg = r_copy2["texts"]
@@ -202,8 +210,8 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
             await msg.reply_text("Игорь: С первого раза хорошо. Принято.")
 
         await msg.reply_text("Лена Волкова — проверяю Instagram-пакет Кати...")
-        r_ig_ed = instagram_editor.run(
-            topic, r_analyst["analysis"], r_strategist["strategy"],
+        r_ig_ed = await _run_blocking(
+            instagram_editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
             r_insta["texts"], GEMINI_API_KEY
         )
         final_ig = r_insta["texts"]
@@ -211,13 +219,13 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         if not r_ig_ed["accepted"]:
             await msg.reply_text(f"Лена: Катя, нужно переделать.\n\n{_short(r_ig_ed['review'], 400)}")
             await msg.reply_text("Катя: Хорошо, сейчас исправлю...")
-            r_insta2 = instagram_writer.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"],
+            r_insta2 = await _run_blocking(
+                instagram_writer.run, topic, r_analyst["analysis"], r_strategist["strategy"],
                 r_marketer["marketing"], GEMINI_API_KEY,
                 editor_feedback=r_ig_ed["review"], iteration=2
             )
-            r_ig_ed2 = instagram_editor.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"],
+            r_ig_ed2 = await _run_blocking(
+                instagram_editor.run, topic, r_analyst["analysis"], r_strategist["strategy"],
                 r_insta2["texts"], GEMINI_API_KEY, iteration=2
             )
             final_ig = r_insta2["texts"]
@@ -228,11 +236,11 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
             await msg.reply_text("Лена: Всё отлично, без правок.")
 
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
-        r_human = humanizer.run(topic, final_tg, final_ig, GEMINI_API_KEY)
+        r_human = await _run_blocking(humanizer.run, topic, final_tg, final_ig, GEMINI_API_KEY)
 
         await msg.reply_text("Света Громова — финальная проверка и подготовка к публикации...")
-        r_pub = publisher.run(
-            topic,
+        r_pub = await _run_blocking(
+            publisher.run, topic,
             r_human["telegram_humanized"],
             r_human["instagram_humanized"],
             GEMINI_API_KEY
@@ -267,11 +275,11 @@ async def _run_offer(msg: Message, product: str):
     await msg.reply_text(f"Нина и Виктор берутся за оффер:\n«{product}»\n\nЗаймёт ~1 минуту...")
     try:
         await msg.reply_text("Нина Соколова — анализирую аудиторию под этот продукт...")
-        r_analyst = analyst.run(product, GEMINI_API_KEY)
+        r_analyst = await _run_blocking(analyst.run, product, GEMINI_API_KEY)
         await msg.reply_text("Нина: Готово. Виктор, передаю анализ.")
 
         await msg.reply_text("Виктор Самойлов — строю оффер по Хормози...")
-        r_offer = offer_architect.run(product, r_analyst["analysis"], GEMINI_API_KEY)
+        r_offer = await _run_blocking(offer_architect.run, product, r_analyst["analysis"], GEMINI_API_KEY)
 
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nВиктор сдал оффер\n━━━━━━━━━━━━━━━━━━━")
         await _send(msg, f"ОФФЕР — {product.upper()}\n\n{r_offer['offer']}")
@@ -328,7 +336,7 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + (f".\nСобытия: {events}" if events else "") + "\n\nЗаймёт ~1 минуту..."
     )
     try:
-        r = content_planner.run(GEMINI_API_KEY, mode=mode, events=events)
+        r = await _run_blocking(content_planner.run, GEMINI_API_KEY, mode=mode, events=events)
         await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nСоня — Контент-план\n━━━━━━━━━━━━━━━━━━━")
         await _send(update.message, r["plan"])
     except Exception as e:
@@ -379,7 +387,8 @@ async def cmd_community(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Миша — {mode_labels.get(mode, mode)}...")
 
     try:
-        r = community_manager.run(
+        r = await _run_blocking(
+            community_manager.run,
             GEMINI_API_KEY,
             task=task,
             comments=extra if mode in ("comments", "report") else None,
@@ -436,7 +445,8 @@ async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Таня — {mode_labels.get(mode, mode)}...")
 
     try:
-        r = comment_analyst.run(
+        r = await _run_blocking(
+            comment_analyst.run,
             GEMINI_API_KEY,
             mode=mode,
             publication=publication if mode == "post_report" else None,
@@ -460,7 +470,7 @@ async def cmd_architect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Алекс Громов — аудит команды{f' с фокусом: «{focus}»' if focus else ''}..."
     )
     try:
-        r = team_architect.run(GEMINI_API_KEY, focus=focus or None)
+        r = await _run_blocking(team_architect.run, GEMINI_API_KEY, focus=focus or None)
         await update.message.reply_text("━━━━━━━━━━━━━━━━━━━\nАлекс Громов — Аудит команды\n━━━━━━━━━━━━━━━━━━━")
         await _send(update.message, r["audit"])
     except Exception as e:
@@ -680,7 +690,7 @@ async def _run_channelstats(message: Message):
 
     await message.reply_text("Анализирую реальную статистику канала...")
     try:
-        r = channel_analyst.run(CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        r = await _run_blocking(channel_analyst.run, CHANNEL_CHAT_ID, GEMINI_API_KEY)
         header = f"━━━━━━━━━━━━━━━━━━━\nАналитик канала (по {r['posts_count']} постам, {r['subscriber_points']} точкам подписчиков)\n━━━━━━━━━━━━━━━━━━━"
         await message.reply_text(header)
         await _send(message, r["analysis"])
@@ -700,7 +710,7 @@ async def cmd_syncinsights(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Обновляю выводы команды по реальной статистике канала...")
     try:
-        r = channel_analyst.sync_to_team_memory(CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        r = await _run_blocking(channel_analyst.sync_to_team_memory, CHANNEL_CHAT_ID, GEMINI_API_KEY)
         if r["status"] == "not_enough_data":
             await update.message.reply_text(
                 f"Данных мало для обновления (постов: {r['posts_count']}, нужно минимум 5)."
