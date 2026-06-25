@@ -31,9 +31,11 @@ from agents import (
     analyst, strategist, marketer, copywriter,
     instagram_writer, editor, instagram_editor,
     humanizer, publisher, offer_architect, team_architect, content_planner,
-    community_manager, comment_analyst
+    community_manager, comment_analyst, channel_stats, channel_analyst
 )
 from agents import memory_utils
+
+CHANNEL_CHAT_ID = -1001800141714
 
 
 def _short(text: str, n: int = 3500) -> str:
@@ -478,6 +480,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         transcript = await _transcribe_voice(tmp_path)
         await update.message.reply_text(f"Расшифровка:\n\n{transcript}")
+
+        if _detect_intent(transcript) == "channelstats":
+            await _run_channelstats(update.message)
+            return
+
         # Сохраняем полный текст в user_data — без обрезки
         _store_topic(context.user_data, "voice_post", transcript)
         _store_topic(context.user_data, "voice_offer", transcript)
@@ -497,10 +504,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _detect_intent(text: str) -> str:
-    """Определяет намерение пользователя: 'post', 'offer' или 'unknown'."""
+    """Определяет намерение пользователя: 'post', 'offer', 'channelstats' или 'unknown'."""
     t = text.lower()
+    channelstats_keywords = [
+        "статистика канала", "статистику канала", "статистика по каналу",
+        "как канал", "как дела с каналом", "отчёт по каналу", "отчет по каналу",
+        "сколько подписчиков", "динамика подписчиков", "просмотры на канале",
+        "аналитика канала", "что с каналом",
+    ]
     offer_keywords = ["оффер", "продающ", "предложени", "продай", "продаж"]
     post_keywords = ["пост", "текст", "напиши", "создай", "сделай", "статью", "контент"]
+    if any(k in t for k in channelstats_keywords):
+        return "channelstats"
     if any(k in t for k in offer_keywords):
         return "offer"
     if any(k in t for k in post_keywords):
@@ -538,7 +553,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     intent = _detect_intent(text)
 
-    if intent == "post":
+    if intent == "channelstats":
+        await _run_channelstats(update.message)
+
+    elif intent == "post":
         # Убираем ключевые слова-команды из темы если они в начале
         topic = text
         for prefix in ["напиши пост про ", "напиши пост о ", "создай пост про ", "создай пост о ",
@@ -615,8 +633,59 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _run_offer(query.message, product)
 
 
+async def _run_channelstats(message: Message):
+    if not GEMINI_API_KEY:
+        await message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    await message.reply_text("Анализирую реальную статистику канала...")
+    try:
+        r = channel_analyst.run(CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        header = f"━━━━━━━━━━━━━━━━━━━\nАналитик канала (по {r['posts_count']} постам, {r['subscriber_points']} точкам подписчиков)\n━━━━━━━━━━━━━━━━━━━"
+        await message.reply_text(header)
+        await _send(message, r["analysis"])
+    except Exception as e:
+        logger.exception("Ошибка в анализе канала")
+        await message.reply_text(f"Ошибка: {e}")
+
+
+async def cmd_channelstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _run_channelstats(update.message)
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
+
+
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    post = update.channel_post or update.edited_channel_post
+    if not post or post.chat_id != CHANNEL_CHAT_ID:
+        return
+
+    reactions = {}
+    if post.reactions:
+        for r in post.reactions:
+            emoji = getattr(r, "emoji", None) or getattr(r, "custom_emoji_id", "?")
+            reactions[emoji] = r.total_count
+
+    channel_stats.save_post(
+        chat_id=post.chat_id,
+        message_id=post.message_id,
+        date=post.date,
+        text=post.text or post.caption or "",
+        views=post.views,
+        forwards=post.forward_origin and 1 or None,
+        reactions=reactions,
+    )
+
+
+async def job_snapshot_subscribers(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        count = await context.bot.get_chat_member_count(CHANNEL_CHAT_ID)
+        channel_stats.snapshot_subscribers(CHANNEL_CHAT_ID, count)
+        logger.info(f"Снимок подписчиков сохранён: {count}")
+    except Exception:
+        logger.exception("Не удалось сохранить снимок подписчиков")
 
 
 def main():
@@ -636,10 +705,17 @@ def main():
     app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CommandHandler("community", cmd_community))
     app.add_handler(CommandHandler("analytics", cmd_analytics))
+    app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(
+        filters.UpdateType.CHANNEL_POST | filters.UpdateType.EDITED_CHANNEL_POST,
+        handle_channel_post
+    ))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
+
+    app.job_queue.run_repeating(job_snapshot_subscribers, interval=24 * 60 * 60, first=30)
 
     print("Бот запущен.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

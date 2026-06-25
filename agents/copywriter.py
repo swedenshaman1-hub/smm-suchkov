@@ -166,7 +166,6 @@ def run(topic: str, analyst_output: str, strategy_output: str,
         for line in reflection_text.strip().split("\n"):
             if line.strip() and "•" in line:
                 memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "copywriting")
-                memory_utils.add_technique(memory, line.strip().lstrip("•").strip(), topic, successful=True)
 
     memory_utils.add_topic(memory, topic, f"Итерация {iteration}: {result_text[:200]}")
     memory_utils.save(AGENT_ID, memory)

@@ -198,7 +198,6 @@ def run(topic: str, analyst_output: str, strategy_output: str, marketing_output:
         for line in reflection_text.strip().split("\n"):
             if line.strip() and "•" in line:
                 memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "instagram")
-                memory_utils.add_technique(memory, line.strip().lstrip("•").strip(), topic, successful=True)
 
     memory_utils.add_topic(memory, topic, f"IG итерация {iteration}")
     memory_utils.save(AGENT_ID, memory)

@@ -163,9 +163,14 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
 
-    accepted = "готовы к очеловечиванию" in result_text.lower() or \
-               "вариант готов к очеловечиванию" in result_text.lower() or \
-               ("РЕШЕНИЕ: ПРИНЯТО" in result_text and "РЕШЕНИЕ: ОТКЛОНЕНО" not in result_text)
+    verdict_line = ""
+    for line in result_text.lower().split("\n"):
+        if "общий вердикт" in line:
+            verdict_line = line
+            break
+    accepted = "требуют доработки" not in verdict_line and "отклонены" not in verdict_line and (
+        "готовы к очеловечиванию" in verdict_line or "один вариант готов" in verdict_line
+    )
 
     if not accepted:
         reflection_text = gemini_call(
