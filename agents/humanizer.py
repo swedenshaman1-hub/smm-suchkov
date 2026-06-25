@@ -151,6 +151,22 @@ def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_k
                         disable_thinking=True).strip()
 
 
+def trim_to_length(text: str, max_len: int, topic: str, api_key: str) -> str:
+    """Сжимает уже очеловеченный текст до целевой длины, сохраняя смысл и голос —
+    используется когда финальный текст вышел за рамки платформы."""
+    system = SYSTEM_PROMPT
+    user_msg = f"""Тема: «{topic}»
+
+ТЕКСТ ({len(text)} символов, нужно сократить до {max_len}):
+{text}
+
+Сократи до {max_len} символов или меньше. Убирай целые предложения и повторы, а не обрезай на полуслове.
+Сохрани смысловую дугу, голос и финал. Выведи только сокращённый текст, без пометок."""
+
+    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6,
+                        disable_thinking=True).strip()
+
+
 def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)

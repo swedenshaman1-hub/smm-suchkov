@@ -362,6 +362,15 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
         r_human = await _run_blocking(humanizer.run, topic, final_tg, final_ig, GEMINI_API_KEY)
 
+        TG_MAX_LEN = 1800
+        if len(r_human["telegram_humanized"]) > TG_MAX_LEN:
+            await msg.reply_text(
+                f"{ROLES['Даша']}: текст вышел за рамки длины ({len(r_human['telegram_humanized'])} символов) — сокращаю..."
+            )
+            r_human["telegram_humanized"] = await _run_blocking(
+                humanizer.trim_to_length, r_human["telegram_humanized"], TG_MAX_LEN, topic, GEMINI_API_KEY
+            )
+
         await msg.reply_text("Олег Савин — оцениваю виральный и коммерческий потенциал готового текста...")
         r_marketer = await _run_blocking(
             marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
