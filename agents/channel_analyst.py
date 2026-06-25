@@ -152,3 +152,70 @@ def infer_audience_profile(posts: list, api_key: str) -> str:
 
     return gemini_call(api_key, MODEL, SYSTEM_PROMPT, prompt, max_tokens=800, temperature=0.3,
                         disable_thinking=True)
+
+
+PROMPT_AUDIT_SYSTEM = """Ты — внутренний аудитор промптов SMM-команды Дмитрия Сучкова. Твоя задача — не писать контент и не анализировать канал с нуля. Ты сравниваешь то, что реально работает у аудитории (данные канала), с тем, какие приёмы и память накопили агенты команды, и ищешь конкретные несоответствия.
+
+Тебе дают:
+1. Реальные рабочие/неработающие паттерны из данных канала
+2. Текущую память ключевых агентов (что они считают своими успешными техниками, какие у них инсайты)
+
+Твоя задача — найти места, где агенты:
+- используют приём, который реальные данные канала не подтверждают (или прямо противоречат)
+- не используют приём, который реально хорошо работает, хотя он есть в данных
+- накопили клише/повторы (один и тот же образ во всех темах) — это видно по списку их техник
+
+Для каждой находки дай конкретное предложение правки — что именно добавить или убрать из промпта агента, а не общий совет. Если несоответствий нет — прямо скажи, что команда соответствует реальным данным.
+
+## Формат вывода
+
+### [Имя агента]
+**Несоответствие:** что конкретно расходится с реальными данными
+**Предложение правки промпта:** конкретная фраза/инструкция, которую стоит добавить или убрать
+
+Если по агенту всё в порядке — не включай его в отчёт.
+
+В конце — ОБЩИЙ ВЫВОД на 1-2 предложения: нужны ли правки сейчас, или рано (мало данных).
+
+Только русский язык. Без выдумывания — если данных мало, скажи прямо."""
+
+
+def propose_prompt_improvements(chat_id: int, api_key: str, n_posts: int = 400) -> dict:
+    """Сравнивает реальные данные канала с накопленной памятью агентов и предлагает
+    конкретные правки промптов. Ничего не меняет в коде сама — только формулирует
+    предложения для человека (или для меня) на рассмотрение."""
+    posts = channel_stats.get_recent_posts(chat_id, n_posts)
+    if len(posts) < 5:
+        return {"status": "not_enough_data", "posts_count": len(posts)}
+
+    lessons_prompt = f"""ПОСЛЕДНИЕ ПОСТЫ КАНАЛА ({len(posts)} шт.):
+{_format_posts(posts)}
+
+Выдели короткие практические уроки.
+Формат строго такой:
+РАБОТАЕТ: <паттерн>
+НЕ РАБОТАЕТ: <паттерн>"""
+    raw_lessons = gemini_call(api_key, MODEL, SYSTEM_PROMPT, lessons_prompt, max_tokens=1500, temperature=0.3,
+                               disable_thinking=True)
+
+    memory_summary_lines = []
+    for agent_id in TEAM_AGENTS:
+        memory = memory_utils.load(agent_id)
+        successful = [t["text"] for t in memory["techniques"]["successful"][-8:]]
+        failed = [t["text"] for t in memory["techniques"]["failed"][-5:]]
+        memory_summary_lines.append(f"### {agent_id}")
+        memory_summary_lines.append("Успешные техники в памяти: " + ("; ".join(successful) or "нет"))
+        memory_summary_lines.append("Неуспешные техники в памяти: " + ("; ".join(failed) or "нет"))
+
+    audit_prompt = f"""РЕАЛЬНЫЕ ПАТТЕРНЫ ИЗ ДАННЫХ КАНАЛА ({len(posts)} постов):
+{raw_lessons}
+
+ТЕКУЩАЯ ПАМЯТЬ АГЕНТОВ:
+{chr(10).join(memory_summary_lines)}
+
+Сравни и найди конкретные несоответствия по инструкции."""
+
+    result_text = gemini_call(api_key, MODEL, PROMPT_AUDIT_SYSTEM, audit_prompt, max_tokens=4000, temperature=0.4,
+                               disable_thinking=True)
+
+    return {"status": "ok", "posts_count": len(posts), "report": result_text}

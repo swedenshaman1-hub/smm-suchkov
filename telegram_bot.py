@@ -841,6 +841,41 @@ async def cmd_syncinsights(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Ошибка: {e}")
 
 
+async def _run_promptcheck(message: Message):
+    if not GEMINI_API_KEY:
+        await message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+    await message.reply_text("Сравниваю реальные данные канала с тем, что выдают агенты...")
+    try:
+        r = await _run_blocking(channel_analyst.propose_prompt_improvements, CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        if r["status"] == "not_enough_data":
+            await message.reply_text(f"Данных мало для аудита (постов: {r['posts_count']}, нужно минимум 5).")
+            return
+        await _send(message, f"Аудит промптов (на основе {r['posts_count']} постов):\n\n{r['report']}")
+    except Exception as e:
+        logger.exception("Ошибка в /promptcheck")
+        await message.reply_text(f"Ошибка: {e}")
+
+
+async def cmd_promptcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _run_promptcheck(update.message)
+
+
+async def job_weekly_promptcheck(context: ContextTypes.DEFAULT_TYPE):
+    owner_chat_id = os.getenv("OWNER_CHAT_ID", "").strip()
+    if not owner_chat_id:
+        return
+    try:
+        r = await _run_blocking(channel_analyst.propose_prompt_improvements, CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        if r["status"] == "not_enough_data":
+            return
+        text = f"Еженедельный аудит промптов (на основе {r['posts_count']} постов):\n\n{r['report']}"
+        for i in range(0, len(text), 4000):
+            await context.bot.send_message(chat_id=owner_chat_id, text=text[i:i + 4000])
+    except Exception:
+        logger.exception("Ошибка в еженедельном аудите промптов")
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
 
@@ -905,6 +940,7 @@ def main():
     # app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
+    app.add_handler(CommandHandler("promptcheck", cmd_promptcheck))
     app.add_handler(CallbackQueryHandler(handle_tts, pattern="^tts$"))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -916,6 +952,7 @@ def main():
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     app.job_queue.run_repeating(job_snapshot_subscribers, interval=24 * 60 * 60, first=30)
+    app.job_queue.run_repeating(job_weekly_promptcheck, interval=7 * 24 * 60 * 60, first=60)
 
     print("Бот запущен.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
