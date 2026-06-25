@@ -12,7 +12,10 @@ import wave
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters,
+    PicklePersistence,
+)
 from google import genai as google_genai
 from google.genai import types as genai_types
 
@@ -849,7 +852,14 @@ def main():
     print("SMM-бот запускается...")
     print(f"Gemini API: {'настроен' if GEMINI_API_KEY else 'не задан'}")
 
-    app = Application.builder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
+    persistence = PicklePersistence(filepath=os.path.join(os.path.dirname(__file__), "bot_state.pkl"))
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .concurrent_updates(True)
+        .persistence(persistence)
+        .build()
+    )
 
     app.add_handler(CommandHandler(["help", "start"], cmd_help))
     app.add_handler(CommandHandler("post", cmd_post))
