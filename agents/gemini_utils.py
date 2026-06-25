@@ -9,7 +9,7 @@ from google.genai import types
 def gemini_call(api_key: str, model: str, system: str, user_msg: str,
                 max_tokens: int = 2000, temperature: float = 0.7,
                 disable_thinking: bool = False) -> str:
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
     attempts = 5
     config_kwargs = dict(
         system_instruction=system,

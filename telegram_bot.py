@@ -127,7 +127,7 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _text_to_speech(text: str) -> str:
     """Озвучивает текст через Gemini TTS (надёжнее на облачных серверах, чем gTTS,
     который ходит на неофициальный эндпоинт Google Translate и часто блокирует datacenter IP)."""
-    client = google_genai.Client(api_key=GEMINI_API_KEY)
+    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=60_000))
     response = client.models.generate_content(
         model="gemini-2.5-flash-preview-tts",
         contents=text[:3000],
@@ -155,15 +155,19 @@ def _text_to_speech(text: str) -> str:
 async def _run_blocking(fn, *args, **kwargs):
     """Выполняет блокирующий (синхронный) вызов агента в отдельном потоке,
     чтобы не замораживать цикл обработки событий бота (и его опрос Telegram)
-    на те секунды-минуты, которые требует вызов Gemini."""
+    на те секунды-минуты, которые требует вызов Gemini. Таймаут — страховка
+    на случай, если сетевой вызов внутри повиснет без собственной ошибки."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, lambda: fn(*args, **kwargs)), timeout=180)
+    except asyncio.TimeoutError:
+        raise TimeoutError("Запрос к Gemini не ответил за 3 минуты — вероятно, временный сбой сети. Попробуй ещё раз.")
 
 
 async def _transcribe_voice(file_path: str) -> str:
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
-    client = google_genai.Client(api_key=GEMINI_API_KEY)
+    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=120_000))
     attempts = 5
     for attempt in range(attempts):
         try:
