@@ -650,6 +650,33 @@ async def cmd_channelstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _run_channelstats(update.message)
 
 
+async def cmd_syncinsights(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    await update.message.reply_text("Обновляю выводы команды по реальной статистике канала...")
+    try:
+        r = channel_analyst.sync_to_team_memory(CHANNEL_CHAT_ID, GEMINI_API_KEY)
+        if r["status"] == "not_enough_data":
+            await update.message.reply_text(
+                f"Данных мало для обновления (постов: {r['posts_count']}, нужно минимум 5)."
+            )
+            return
+        lines = [f"Обновлено на основе {r['posts_count']} постов.\n"]
+        if r["successful"]:
+            lines.append("РАБОТАЕТ:")
+            lines += [f"• {s}" for s in r["successful"]]
+        if r["failed"]:
+            lines.append("\nНЕ РАБОТАЕТ:")
+            lines += [f"• {s}" for s in r["failed"]]
+        lines.append("\nЭти выводы теперь учитываются Артёмом, Ниной, Машей и Катей при создании новых постов.")
+        await _send(update.message, "\n".join(lines))
+    except Exception as e:
+        logger.exception("Ошибка в /syncinsights")
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
 
@@ -703,6 +730,7 @@ def main():
     app.add_handler(CommandHandler("community", cmd_community))
     app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
+    app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

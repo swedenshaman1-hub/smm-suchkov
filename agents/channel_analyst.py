@@ -5,6 +5,9 @@
 
 from agents.gemini_utils import gemini_call
 from agents import channel_stats
+from agents import memory_utils
+
+TEAM_AGENTS = ["strategist", "analyst", "copywriter", "instagram_writer"]
 
 AGENT_ID = "channel_analyst"
 MODEL = "gemini-2.5-flash"
@@ -71,3 +74,50 @@ def run(chat_id: int, api_key: str, n_posts: int = 400, n_days: int = 90) -> dic
         "subscriber_points": len(history),
         "analysis": result_text,
     }
+
+
+def sync_to_team_memory(chat_id: int, api_key: str, n_posts: int = 400) -> dict:
+    """Извлекает рабочие/неработающие паттерны из реальных данных канала
+    и кладёт их в память команды (стратег, аналитик, копирайтеры), чтобы
+    они учитывались при создании новых постов."""
+    posts = channel_stats.get_recent_posts(chat_id, n_posts)
+    if len(posts) < 5:
+        return {"status": "not_enough_data", "posts_count": len(posts)}
+
+    lessons_prompt = f"""ПОСЛЕДНИЕ ПОСТЫ КАНАЛА ({len(posts)} шт.):
+{_format_posts(posts)}
+
+На основе этих реальных данных выдели короткие практические уроки для команды копирайтеров.
+Формат строго такой, без пояснений:
+РАБОТАЕТ: <короткий конкретный паттерн, который реально дал высокую вовлечённость>
+НЕ РАБОТАЕТ: <короткий конкретный паттерн, который провалился>
+По 2-4 строки каждого типа. Только на основе видимых данных, без выдумывания."""
+
+    raw = gemini_call(api_key, MODEL, SYSTEM_PROMPT, lessons_prompt, max_tokens=1500, temperature=0.3,
+                       disable_thinking=True)
+
+    successful, failed = [], []
+    for line in raw.strip().split("\n"):
+        line = line.strip()
+        if line.upper().startswith("РАБОТАЕТ:"):
+            successful.append(line.split(":", 1)[1].strip())
+        elif line.upper().startswith("НЕ РАБОТАЕТ:"):
+            failed.append(line.split(":", 1)[1].strip())
+
+    feedback_text = (
+        f"Обновлённый анализ {len(posts)} постов канала (реальные данные, без выдумывания): "
+        f"работает — {'; '.join(successful) or 'нет явных паттернов'}; "
+        f"не работает — {'; '.join(failed) or 'нет явных паттернов'}."
+    )
+
+    for agent_id in TEAM_AGENTS:
+        memory = memory_utils.load(agent_id)
+        for s in successful:
+            memory_utils.add_technique(memory, s, topic="реальная статистика канала", successful=True)
+        for f in failed:
+            memory_utils.add_technique(memory, f, topic="реальная статистика канала", successful=False)
+        memory_utils.add_feedback(memory, from_agent="Аналитик канала (реальные данные)",
+                                   feedback=feedback_text, topic="аудит канала")
+        memory_utils.save(agent_id, memory)
+
+    return {"status": "ok", "posts_count": len(posts), "successful": successful, "failed": failed}
