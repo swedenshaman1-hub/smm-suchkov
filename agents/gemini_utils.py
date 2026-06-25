@@ -9,7 +9,8 @@ from google.genai import types
 def gemini_call(api_key: str, model: str, system: str, user_msg: str,
                 max_tokens: int = 2000, temperature: float = 0.7) -> str:
     client = genai.Client(api_key=api_key)
-    for attempt in range(3):
+    attempts = 5
+    for attempt in range(attempts):
         try:
             response = client.models.generate_content(
                 model=model,
@@ -22,8 +23,7 @@ def gemini_call(api_key: str, model: str, system: str, user_msg: str,
             )
             return response.text
         except Exception as e:
-            if "503" in str(e) or "UNAVAILABLE" in str(e):
-                if attempt < 2:
-                    time.sleep(5 * (attempt + 1))
-                    continue
+            if ("503" in str(e) or "UNAVAILABLE" in str(e)) and attempt < attempts - 1:
+                time.sleep(10 * (attempt + 1))
+                continue
             raise
