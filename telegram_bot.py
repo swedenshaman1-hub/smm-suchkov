@@ -898,8 +898,11 @@ def main():
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CommandHandler("plan", cmd_plan))
-    app.add_handler(CommandHandler("community", cmd_community))
-    app.add_handler(CommandHandler("analytics", cmd_analytics))
+    # /community и /analytics временно отключены — Миша и Таня спроектированы под
+    # автоматическое чтение комментариев из Telegram, которого в коде нет (комментарии
+    # нужно вставлять вручную текстом, что на практике не происходит). Включить обратно:
+    # app.add_handler(CommandHandler("community", cmd_community))
+    # app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
     app.add_handler(CallbackQueryHandler(handle_tts, pattern="^tts$"))
