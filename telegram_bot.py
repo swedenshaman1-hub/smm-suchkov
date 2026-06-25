@@ -201,7 +201,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         await _send(msg, f"ФИНАЛЬНАЯ ПРОВЕРКА (от Светы):\n\n{r_pub['final_content']}")
 
         if feedback:
-            for agent_id in ["copywriter", "instagram_writer", "humanizer"]:
+            for agent_id in ["analyst", "strategist", "copywriter", "instagram_writer", "humanizer"]:
                 mem = memory_utils.load(agent_id)
                 memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
                 memory_utils.save(agent_id, mem)

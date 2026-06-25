@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import channel_stats
 from agents import memory_utils
 
-TEAM_AGENTS = ["strategist", "analyst", "copywriter", "instagram_writer"]
+TEAM_AGENTS = ["strategist", "analyst", "copywriter", "instagram_writer", "editor", "instagram_editor"]
 
 AGENT_ID = "channel_analyst"
 MODEL = "gemini-2.5-flash"
