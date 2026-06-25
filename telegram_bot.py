@@ -159,6 +159,29 @@ def _text_to_speech(text: str) -> str:
     return path
 
 
+def _split_instagram_sections(text: str) -> list:
+    """Разбивает Instagram-пакет (пост / сторис / карусель / Reels) на отдельные
+    блоки, чтобы каждый формат можно было отправить отдельным сообщением."""
+    labels = {
+        "ОСНОВНОЙ ПОСТ": "ПОСТ",
+        "СТОРИС-ПРОГРЕВ": "СТОРИС",
+        "КАРУСЕЛЬ": "КАРУСЕЛЬ",
+        "REELS": "REELS",
+    }
+    pattern = r"^\d\.\s*(ОСНОВНОЙ ПОСТ|СТОРИС-ПРОГРЕВ|КАРУСЕЛЬ|REELS)[^\n]*$"
+    matches = list(re.finditer(pattern, text, re.MULTILINE))
+    if not matches:
+        return [("INSTAGRAM-ПАКЕТ", text)]
+
+    sections = []
+    for i, m in enumerate(matches):
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        label = labels.get(m.group(1), m.group(1))
+        sections.append((label, text[start:end].strip()))
+    return sections
+
+
 def _extract_variant(text: str, letter: str) -> str:
     """Достаёт текст конкретного варианта (А/Б) из ответа копирайтера, чтобы
     дальше по цепочке передавался только выбранный вариант, а не оба сразу."""
@@ -356,7 +379,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
         await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
-        await _send(msg, f"INSTAGRAM-КОНТЕНТ (от {ROLES['Даша']}):\n\n{r_human['instagram_humanized']}")
+        for label, content in _split_instagram_sections(r_human["instagram_humanized"]):
+            await _send(msg, f"INSTAGRAM — {label} (от {ROLES['Даша']}):\n\n{content}")
         await _send(msg, f"ФИНАЛЬНАЯ ПРОВЕРКА (от {ROLES['Света']}):\n\n{r_pub['final_content']}")
 
         if feedback:
