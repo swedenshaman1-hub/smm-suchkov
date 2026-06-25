@@ -155,7 +155,7 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 
 Перепиши оба варианта с учётом всех замечаний — сохрани глубину, исправь отмеченное."""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.8)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.8)
 
     if not editor_feedback:
         reflection_text = gemini_call(

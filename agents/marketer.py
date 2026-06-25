@@ -166,7 +166,7 @@ def run(topic: str, analyst_output: str, strategy_output: str, api_key: str,
 Финальный текст ещё не готов — оцени стратегический потенциал темы и ТЗ по 5 разделам.
 Фиксируй явно: «предварительная оценка, финального текста нет»."""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=2000, temperature=0.7)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

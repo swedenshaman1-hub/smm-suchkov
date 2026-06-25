@@ -166,7 +166,7 @@ def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> d
 
     user_msg += "\n\nПострой оффер по структуре из 8 разделов (0–8). Самопроверку по Хормози выполни до передачи."
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.75)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.75)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

@@ -179,7 +179,7 @@ def run(task: str, system_context: str, api_key: str, mode: str = "diagnose") ->
 
 {mode_instruction}"""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.6)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

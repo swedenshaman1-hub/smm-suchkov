@@ -161,7 +161,7 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 
 Выпиши ключевые параметры из ТЗ Артёма. Проверь оба варианта по чеклисту (стратегия, платформа, авторский голос). Сравни варианты. Вынеси ВЕРДИКТ по каждому и ОБЩИЙ ВЕРДИКТ."""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.6)
 
     verdict_line = ""
     for line in result_text.lower().split("\n"):

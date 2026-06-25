@@ -166,7 +166,7 @@ INSTAGRAM-ТЕКСТ (одобрен Леной Волковой):
 КОММЕНТАРИЙ ДАШИ:
 [что правила и почему]"""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.85)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

@@ -196,7 +196,7 @@ def run(api_key: str, apply_fixes: bool = False) -> dict:
 Дай конкретные улучшения промптов — с цитатами старого и нового текста.
 В конце — топ-3 приоритета для немедленного внедрения."""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=7000, temperature=0.6)
 
     applied = []
     if apply_fixes:

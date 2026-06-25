@@ -139,7 +139,7 @@ def run(api_key: str, focus: str = None) -> dict:
         user_msg += f"\n\nОСОБЫЙ ФОКУС АНАЛИЗА: {focus}"
 
     system = SYSTEM_PROMPT + memory_utils.build_context(my_memory, "аудит команды")
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.7)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 
     # Архитектор тоже учится
     reflection = gemini_call(

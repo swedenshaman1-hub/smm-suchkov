@@ -187,7 +187,7 @@ def run(topic: str, analyst_output: str, strategy_output: str, marketing_output:
     if editor_feedback:
         user_msg += f"\n\nИТЕРАЦИЯ {iteration}. ЛЕНА ВЕРНУЛА С ЗАМЕЧАНИЯМИ:\n{editor_feedback}\nПерепиши с учётом всех замечаний."
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.8)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=9000, temperature=0.8)
 
     if not editor_feedback:
         reflection_text = gemini_call(

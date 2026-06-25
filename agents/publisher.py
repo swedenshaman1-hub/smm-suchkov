@@ -151,7 +151,7 @@ INSTAGRAM-ТЕКСТ (одобрен, очеловечен Дашей):
 2. INSTAGRAM: отформатированный текст + статус по чеклисту
 3. ГОТОВО К ПУБЛИКАЦИИ: да / нет (с указанием что не закрыто если нет)"""
 
-    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT + memory_utils.build_context(memory, topic), user_msg, max_tokens=3000, temperature=0.4)
+    result_text = gemini_call(api_key, MODEL, SYSTEM_PROMPT + memory_utils.build_context(memory, topic), user_msg, max_tokens=6000, temperature=0.4)
 
     memory_utils.add_topic(memory, topic, result_text[:300])
     memory_utils.save(AGENT_ID, memory)

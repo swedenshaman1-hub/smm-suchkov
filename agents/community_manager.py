@@ -270,7 +270,7 @@ def run(api_key: str, task: str, comments: str = None, direct_message: str = Non
     else:
         user_msg = f"Задача: {task}"
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=2000, temperature=0.7)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

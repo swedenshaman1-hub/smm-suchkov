@@ -3,6 +3,7 @@ Telegram-бот SMM-команды Дмитрия Сучкова.
 """
 
 import asyncio
+import re
 import logging
 import os
 import sys
@@ -56,8 +57,13 @@ ROLES = {
 }
 
 
-def _short(text: str, n: int = 3500) -> str:
-    return text[:n] + "\n\n[текст обрезан]" if len(text) > n else text
+def _clean_markdown(text: str) -> str:
+    """Убирает markdown-разметку (### заголовки, **жирный**), которую агенты используют
+    в структуре вывода — Telegram её не рендерит без parse_mode, и она остаётся как сырые символы."""
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\*)\*([^\*\n]+?)\*(?!\*)", r"\1", text)
+    return text
 
 
 def _store_topic(user_data: dict, key: str, value: str):
@@ -72,6 +78,7 @@ def _get_topic(user_data: dict, key: str) -> str:
 
 
 async def _send(msg: Message, text: str):
+    text = _clean_markdown(text)
     limit = 4000
     listen_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔊 Слушать", callback_data="tts")]])
     for i in range(0, len(text), limit):
@@ -93,8 +100,9 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         loop = asyncio.get_running_loop()
         audio_path = await loop.run_in_executor(None, _text_to_speech, text)
+        preview = text.strip().splitlines()[0][:60]
         with open(audio_path, "rb") as f:
-            await query.message.reply_audio(f, title="Озвучка сообщения")
+            await query.message.reply_audio(f, title="Озвучка сообщения", caption=f"🔊 {preview}…")
     except Exception as e:
         logger.exception("Ошибка озвучки")
         await query.message.reply_text(f"Не удалось озвучить: {e}")
@@ -185,15 +193,15 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
     try:
         await msg.reply_text("Нина Соколова — анализирую аудиторию...")
         r_analyst = await _run_blocking(analyst.run, topic, GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Нина']}:\n\n{_short(r_analyst['analysis'], 2000)}")
+        await _send(msg, f"{ROLES['Нина']}:\n\n{r_analyst['analysis']}")
 
         await msg.reply_text("Артём Волков — строю стратегию...")
         r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Артём']}:\n\n{_short(r_strategist['strategy'], 2000)}")
+        await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
 
         await msg.reply_text("Олег Савин — оцениваю маркетинговый потенциал...")
         r_marketer = await _run_blocking(marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Олег']}:\n\n{_short(r_marketer['marketing'], 1200)}")
+        await _send(msg, f"{ROLES['Олег']}:\n\n{r_marketer['marketing']}")
 
         if feedback:
             await msg.reply_text(
@@ -231,7 +239,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
 
         if not r_editor["accepted"]:
             await msg.reply_text(
-                f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{_short(r_editor['review'], 600)}\n\nПеределай."
+                f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{_clean_markdown(r_editor['review'])}\n\nПеределай."
             )
             await msg.reply_text(f"{ROLES['Маша']}: Поняла, исправляю...")
             r_copy2 = await _run_blocking(
@@ -258,7 +266,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         final_ig = r_insta["texts"]
 
         if not r_ig_ed["accepted"]:
-            await msg.reply_text(f"{ROLES['Лена']}: Катя, нужно переделать.\n\n{_short(r_ig_ed['review'], 400)}")
+            await msg.reply_text(f"{ROLES['Лена']}: Катя, нужно переделать.\n\n{_clean_markdown(r_ig_ed['review'])}")
             await msg.reply_text(f"{ROLES['Катя']}: Хорошо, сейчас исправлю...")
             r_insta2 = await _run_blocking(
                 instagram_writer.run, topic, r_analyst["analysis"], r_strategist["strategy"],
@@ -818,7 +826,7 @@ def main():
     print("SMM-бот запускается...")
     print(f"Gemini API: {'настроен' if GEMINI_API_KEY else 'не задан'}")
 
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
     app.add_handler(CommandHandler(["help", "start"], cmd_help))
     app.add_handler(CommandHandler("post", cmd_post))

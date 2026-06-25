@@ -138,7 +138,7 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
     if feedback:
         user_msg += f"\n\nОБРАТНАЯ СВЯЗЬ:\n{feedback}\nСкорректируй стратегию."
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.7)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=9000, temperature=0.7)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

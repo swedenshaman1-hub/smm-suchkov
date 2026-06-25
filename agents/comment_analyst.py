@@ -261,7 +261,7 @@ def run(api_key: str, mode: str = "post_report", comments_data: str = None,
     else:
         user_msg = f"Задача: {task_label}\n\nДанные:\n{comments_data or reputation_data or 'Не предоставлены'}"
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=2500, temperature=0.5)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.5)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

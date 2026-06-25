@@ -182,7 +182,7 @@ def run(api_key: str, mode: str = "week", context_data: str = None,
 4. Баланс-проверку: темы / форматы / температура / платформы
 5. Предупреждения если что-то нереалистично по срокам"""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.6)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,
