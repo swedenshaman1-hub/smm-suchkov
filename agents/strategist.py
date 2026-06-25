@@ -130,7 +130,7 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
     user_msg = f"""Тема: «{topic}»
 
 АНАЛИЗ ЦА от Нины Соколовой:
-{analyst_output[:2000]}
+{analyst_output}
 
 Разработай полную стратегию по всем 15 пунктам структуры.
 Особое внимание — пункту 4 (точка сопротивления) и пунктам 13–14 (ТЗ для Маши и Кати).

@@ -159,7 +159,7 @@ def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> d
     user_msg = f"""Продукт: «{product}»
 
 АНАЛИЗ ЦА от Нины (боли, страхи, триггеры, язык клиента):
-{analyst_output[:2000]}"""
+{analyst_output}"""
 
     if focus:
         user_msg += f"\n\nДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:\n{focus}"

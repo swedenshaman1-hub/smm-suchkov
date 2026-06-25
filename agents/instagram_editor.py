@@ -123,10 +123,10 @@ def run(topic: str, analyst_output: str, strategy_output: str,
     user_msg = f"""ТЕМА: «{topic}»
 
 ТЗ ОТ АРТЁМА ВОЛКОВА (работай строго по нему):
-{strategy_output[:2000]}
+{strategy_output}
 
 АНАЛИЗ ЦА от Нины (контекст):
-{analyst_output[:500]}
+{analyst_output}
 
 INSTAGRAM-ПАКЕТ КАТИ (итерация {iteration}):
 {instagram_output}

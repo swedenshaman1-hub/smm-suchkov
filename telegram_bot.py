@@ -69,7 +69,9 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     text = query.message.text or ""
     if not text.strip():
+        await query.message.reply_text("Нечего озвучивать — сообщение пустое.")
         return
+    audio_path = None
     try:
         loop = asyncio.get_running_loop()
         audio_path = await loop.run_in_executor(None, _text_to_speech, text)
@@ -79,10 +81,11 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Ошибка озвучки")
         await query.message.reply_text(f"Не удалось озвучить: {e}")
     finally:
-        try:
-            os.unlink(audio_path)
-        except Exception:
-            pass
+        if audio_path:
+            try:
+                os.unlink(audio_path)
+            except Exception:
+                pass
 
 
 def _text_to_speech(text: str) -> str:

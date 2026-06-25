@@ -168,10 +168,10 @@ def run(api_key: str, mode: str = "week", context_data: str = None,
         user_msg += f"\n\nСОБЫТИЯ И ЗАПУСКИ (от Дмитрия и Виктора):\n{events}"
 
     if marketer_data:
-        user_msg += f"\n\nДАННЫЕ ОЛЕГА (что работает по цифрам):\n{marketer_data[:1000]}"
+        user_msg += f"\n\nДАННЫЕ ОЛЕГА (что работает по цифрам):\n{marketer_data}"
 
     if context_data:
-        user_msg += f"\n\nСТРАТЕГИЧЕСКИЕ ПРИОРИТЕТЫ (от Артёма):\n{context_data[:800]}"
+        user_msg += f"\n\nСТРАТЕГИЧЕСКИЕ ПРИОРИТЕТЫ (от Артёма):\n{context_data}"
 
     user_msg += """
 

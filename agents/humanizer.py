@@ -190,9 +190,11 @@ INSTAGRAM-ТЕКСТ (одобрен Леной Волковой):
     if "ОЧЕЛОВЕЧЕНО: INSTAGRAM" in result_text:
         parts = result_text.split("ОЧЕЛОВЕЧЕНО: INSTAGRAM")
         tg_part = parts[0].replace("ОЧЕЛОВЕЧЕНО: TELEGRAM", "").strip()
-        ig_part = parts[1].strip()
+        ig_part = parts[1]
+        if "КОММЕНТАРИЙ ДАШИ" in ig_part:
+            ig_part = ig_part.split("КОММЕНТАРИЙ ДАШИ")[0]
         tg_humanized = tg_part
-        ig_humanized = ig_part
+        ig_humanized = ig_part.strip()
 
     return {
         "agent": "Даша (Очеловечиватель)",

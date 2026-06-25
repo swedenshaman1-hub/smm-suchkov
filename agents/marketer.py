@@ -148,10 +148,10 @@ def run(topic: str, analyst_output: str, strategy_output: str, api_key: str,
     user_msg = f"""Тема контента: «{topic}»
 
 ТЗ АРТЁМА (стратегический угол, посыл, анти-язык, температура аудитории):
-{strategy_output[:1000]}
+{strategy_output}
 
 АНАЛИЗ ЦА от Нины (боли, триггеры):
-{analyst_output[:600]}"""
+{analyst_output}"""
 
     if final_content:
         user_msg += f"""

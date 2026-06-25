@@ -168,13 +168,13 @@ def run(topic: str, analyst_output: str, strategy_output: str, marketing_output:
     user_msg = f"""Тема: «{topic}»
 
 ТЗ ОТ АРТЁМА ВОЛКОВА (работай строго по нему):
-{strategy_output[:2000]}
+{strategy_output}
 
 ТЕЛЕСНЫЙ СЛЕД И ЯЗЫК КЛИЕНТА от Нины (используй напрямую):
-{analyst_output[:600]}
+{analyst_output}
 
 МАРКЕТИНГОВЫЕ РЕКОМЕНДАЦИИ ОЛЕГА (учти при написании):
-{marketing_output[:400]}
+{marketing_output}
 
 Напиши полный Instagram-пакет:
 1. ОСНОВНОЙ ПОСТ (500–900 символов, первая строка до «ещё» — крючок)
