@@ -120,4 +120,35 @@ def sync_to_team_memory(chat_id: int, api_key: str, n_posts: int = 400) -> dict:
                                    feedback=feedback_text, topic="аудит канала")
         memory_utils.save(agent_id, memory)
 
-    return {"status": "ok", "posts_count": len(posts), "successful": successful, "failed": failed}
+    audience_profile = infer_audience_profile(posts, api_key)
+    if audience_profile:
+        analyst_memory = memory_utils.load("analyst")
+        memory_utils.set_audience_profile(analyst_memory, audience_profile)
+        memory_utils.save("analyst", analyst_memory)
+
+    return {
+        "status": "ok", "posts_count": len(posts), "successful": successful, "failed": failed,
+        "audience_profile": audience_profile,
+    }
+
+
+def infer_audience_profile(posts: list, api_key: str) -> str:
+    """Выводит реальный профиль аудитории из текстов и реакций постов канала —
+    без предположений о возрасте/поле/роде занятий, только то, что подтверждается данными."""
+    if len(posts) < 5:
+        return ""
+
+    prompt = f"""ПОСЛЕДНИЕ ПОСТЫ КАНАЛА ({len(posts)} шт.) — текст и реакции:
+{_format_posts(posts)}
+
+На основе РЕАЛЬНОГО текста и формулировок этих постов (не предположений) опиши аудиторию канала:
+- Какие темы и боли реально поднимаются в постах, которые получают отклик
+- Какой язык и обращение использует автор (от этого можно судить о близости/дистанции с аудиторией)
+- Какие потребности/желания аудитории видны из тех постов, которые набирают больше реакций
+
+Не утверждай возраст, пол, профессию или социальный статус — у тебя нет данных для этого.
+Формулируй только то, что прямо подтверждается текстами и реакциями.
+Коротко, 4-6 предложений, без заголовков."""
+
+    return gemini_call(api_key, MODEL, SYSTEM_PROMPT, prompt, max_tokens=800, temperature=0.3,
+                        disable_thinking=True)

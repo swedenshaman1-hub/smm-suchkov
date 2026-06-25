@@ -726,6 +726,9 @@ async def cmd_syncinsights(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r["failed"]:
             lines.append("\nНЕ РАБОТАЕТ:")
             lines += [f"• {s}" for s in r["failed"]]
+        if r.get("audience_profile"):
+            lines.append("\nОБНОВЛЁННЫЙ ПРОФИЛЬ АУДИТОРИИ (у Нины):")
+            lines.append(r["audience_profile"])
         lines.append("\nЭти выводы теперь учитываются Артёмом, Ниной, Машей и Катей при создании новых постов.")
         await _send(update.message, "\n".join(lines))
     except Exception as e:

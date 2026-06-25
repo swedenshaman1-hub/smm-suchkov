@@ -85,6 +85,19 @@ def _empty_memory() -> dict:
     }
 
 
+def set_audience_profile(memory: dict, text: str):
+    """Сохраняет актуальный реальный профиль аудитории (выведенный из данных канала),
+    заменяя предыдущую версию — это не накопительный список, а текущий снимок."""
+    memory["profile"]["audience_profile"] = {
+        "text": text,
+        "updated": datetime.now().isoformat(),
+    }
+
+
+def get_audience_profile(memory: dict) -> str:
+    return memory["profile"].get("audience_profile", {}).get("text", "")
+
+
 def add_insight(memory: dict, text: str, topic: str, category: str = "general"):
     memory["insights"].append({
         "text": text,
@@ -144,6 +157,11 @@ def build_context(memory: dict, topic: str) -> str:
     count = memory["profile"].get("sessions_count", 0)
     if count > 0:
         lines.append(f"\n\n═══ ТВОЯ ПАМЯТЬ ({count} сессий) ═══")
+
+    audience_profile = get_audience_profile(memory)
+    if audience_profile:
+        lines.append("\nРЕАЛЬНЫЙ ПРОФИЛЬ АУДИТОРИИ (выведен из данных канала, актуален на сегодня):")
+        lines.append(audience_profile)
 
     relevant = get_relevant_insights(memory, topic, n=8)
     if relevant:
