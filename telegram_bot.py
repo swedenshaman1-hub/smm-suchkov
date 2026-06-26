@@ -115,6 +115,7 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Нечего озвучивать — сообщение пустое.")
         return
     audio_path = None
+    await query.message.reply_text("🔊 Озвучиваю — может занять до пары минут...")
     try:
         loop = asyncio.get_running_loop()
         audio_path = await asyncio.wait_for(
@@ -713,6 +714,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         transcript = await _transcribe_voice(tmp_path)
         await update.message.reply_text(f"Расшифровка:\n\n{transcript}")
 
+        if context.user_data.get("last_post_topic") and _looks_like_feedback(transcript):
+            topic = context.user_data["last_post_topic"]
+            await update.message.reply_text(f"Понял как правку к посту «{topic}». Запускаю доработку...")
+            await _run_post(update.message, topic, context.user_data, feedback=transcript)
+            return
+
         voice_intent = _detect_intent(transcript)
         if voice_intent == "channelstats":
             await _run_channelstats(update.message)
@@ -762,10 +769,33 @@ def _detect_intent(text: str) -> str:
     return "unknown"
 
 
+FEEDBACK_KEYWORDS = [
+    "полегче", "посложнее", "сложн", "бомбит", "переделай", "не то", "не нравится", "плохо",
+    "слишком", "убери", "поправь", "измени", "не пойдёт", "не пойдет", "не годится", "тяжело",
+    "лучше бы", "хочется", "не цепляет", "скучно", "длинно", "коротко",
+]
+
+
+def _looks_like_feedback(text: str) -> bool:
+    """Грубая проверка: похоже ли сообщение на правку к только что сданному посту,
+    а не на запрос новой темы (иначе бот по словам "пост"/"сделай" запускал новый прогон
+    вместо доработки того, что уже есть)."""
+    t = text.lower()
+    return any(k in t for k in FEEDBACK_KEYWORDS)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает любое текстовое сообщение — правки или свободный запрос."""
     text = update.message.text.strip()
     if not text:
+        return
+
+    if (not context.user_data.get("waiting_feedback")
+            and context.user_data.get("last_post_topic")
+            and _looks_like_feedback(text)):
+        topic = context.user_data["last_post_topic"]
+        await update.message.reply_text(f"Понял как правку к посту «{topic}». Запускаю доработку...")
+        await _run_post(update.message, topic, context.user_data, feedback=text)
         return
 
     # Режим ожидания правок
