@@ -80,6 +80,22 @@ def _get_topic(user_data: dict, key: str) -> str:
     return user_data.get("topics", {}).get(key, "")
 
 
+_processed_message_ids = set()
+
+
+def _already_processed(chat_id: int, message_id: int) -> bool:
+    """Защита от повторной обработки одного и того же сообщения — бывает, что Telegram
+    или перекрытие двух процессов во время деплоя присылают/обрабатывают update дважды,
+    и бот отвечает на одно голосовое/текст по два раза."""
+    key = (chat_id, message_id)
+    if key in _processed_message_ids:
+        return True
+    _processed_message_ids.add(key)
+    if len(_processed_message_ids) > 2000:
+        _processed_message_ids.clear()
+    return False
+
+
 SESSION_KEYS = ["last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics"]
 
 
@@ -715,6 +731,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
+    if _already_processed(chat_id, update.message.message_id):
+        return
     _hydrate_session(chat_id, context.user_data)
 
     if context.user_data.get("waiting_feedback"):
@@ -831,6 +849,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
+    if _already_processed(chat_id, update.message.message_id):
+        return
     _hydrate_session(chat_id, context.user_data)
 
     if (not context.user_data.get("waiting_feedback")
