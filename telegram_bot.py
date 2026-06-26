@@ -96,7 +96,10 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
     return False
 
 
-SESSION_KEYS = ["last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics"]
+SESSION_KEYS = [
+    "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
+    "ambiguous_feedback_text",
+]
 
 
 def _persist_session(chat_id: int, user_data: dict):
@@ -774,8 +777,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if context.user_data.get("last_post_topic") and _looks_like_feedback(transcript):
             topic = context.user_data["last_post_topic"]
-            await update.message.reply_text(f"Понял как правку к посту «{topic}». Запускаю доработку...")
-            await _run_post(update.message, topic, context.user_data, feedback=transcript)
+            context.user_data["ambiguous_feedback_text"] = transcript
+            _persist_session(chat_id, context.user_data)
+            keyboard = [
+                [InlineKeyboardButton("✅ Это правка к посту", callback_data="fbconfirm:yes")],
+                [InlineKeyboardButton("🆕 Нет, это новая тема", callback_data="fbconfirm:no")],
+            ]
+            await update.message.reply_text(
+                f"Это правка к посту «{topic}» или новая тема?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             return
 
         voice_intent = _detect_intent(transcript)
@@ -866,8 +877,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             and context.user_data.get("last_post_topic")
             and _looks_like_feedback(text)):
         topic = context.user_data["last_post_topic"]
-        await update.message.reply_text(f"Понял как правку к посту «{topic}». Запускаю доработку...")
-        await _run_post(update.message, topic, context.user_data, feedback=text)
+        context.user_data["ambiguous_feedback_text"] = text
+        _persist_session(chat_id, context.user_data)
+        keyboard = [
+            [InlineKeyboardButton("✅ Это правка к посту", callback_data="fbconfirm:yes")],
+            [InlineKeyboardButton("🆕 Нет, это новая тема", callback_data="fbconfirm:no")],
+        ]
+        await update.message.reply_text(
+            f"Это правка к посту «{topic}» или новая тема?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
     # Режим ожидания правок
@@ -942,6 +961,22 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     _hydrate_session(chat_id, context.user_data)
+
+    if data.startswith("fbconfirm:"):
+        choice = data[len("fbconfirm:"):]
+        pending_text = context.user_data.get("ambiguous_feedback_text", "")
+        if not pending_text:
+            await query.edit_message_text("Не нашёл текст для обработки. Попробуй отправить сообщение ещё раз.")
+            return
+        context.user_data["ambiguous_feedback_text"] = ""
+        if choice == "yes":
+            topic = context.user_data.get("last_post_topic", "")
+            await query.edit_message_text(f"Запускаю доработку поста «{topic}»...")
+            await _run_post(query.message, topic, context.user_data, feedback=pending_text)
+        else:
+            await query.edit_message_text(f"Запускаю пост по теме:\n«{pending_text}»")
+            await _run_post(query.message, pending_text, context.user_data)
+        return
 
     if data == "revise":
         topic = context.user_data.get("last_post_topic", "")
