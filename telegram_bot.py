@@ -99,10 +99,18 @@ async def _send(msg: Message, text: str):
         await msg.reply_text(chunk, reply_markup=listen_keyboard)
 
 
+def _strip_label_header(text: str) -> str:
+    """Убирает первую строку вида «ИМЯ (роль):» перед озвучкой — она не часть текста для чтения."""
+    lines = text.split("\n", 1)
+    if len(lines) == 2 and lines[0].rstrip().endswith(":") and len(lines[0]) < 100:
+        return lines[1].lstrip("\n")
+    return text
+
+
 async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    text = query.message.text or ""
+    text = _strip_label_header(query.message.text or "")
     if not text.strip():
         await query.message.reply_text("Нечего озвучивать — сообщение пустое.")
         return
@@ -386,25 +394,18 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             GEMINI_API_KEY
         )
 
-        ig_sections_to_show = {
-            "all": {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"},
-            "ig_all": {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"},
-            "ig_post": {"ПОСТ"},
-            "ig_stories": {"СТОРИС"},
-            "ig_carousel": {"КАРУСЕЛЬ"},
-            "ig_reels": {"REELS"},
-            "tg": set(),
-        }.get(delivery_filter, {"ПОСТ", "СТОРИС", "КАРУСЕЛЬ", "REELS"})
-        show_tg = delivery_filter in ("all", "tg")
+        sections_dict = dict(_split_instagram_sections(r_human["instagram_humanized"]))
+        ig_post_content = sections_dict.pop("ПОСТ", None)
+        remaining_sections = sections_dict  # СТОРИС / КАРУСЕЛЬ / REELS, или весь пакет если разметка не распознана
 
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
-        if show_tg:
-            await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
-        if ig_sections_to_show:
-            for label, content in _split_instagram_sections(r_human["instagram_humanized"]):
-                if label in ig_sections_to_show:
-                    await _send(msg, f"INSTAGRAM — {label} (от {ROLES['Даша']}):\n\n{content}")
-        await _send(msg, f"ФИНАЛЬНАЯ ПРОВЕРКА (от {ROLES['Света']}):\n\n{r_pub['final_content']}")
+        await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
+        if ig_post_content:
+            await _send(msg, f"INSTAGRAM — ПОСТ (от {ROLES['Даша']}):\n\n{ig_post_content}")
+        else:
+            await _send(msg, f"INSTAGRAM (от {ROLES['Даша']}):\n\n{r_human['instagram_humanized']}")
+
+        user_data["pending_ig_sections"] = remaining_sections
 
         if feedback:
             for agent_id in ["analyst", "strategist", "copywriter", "instagram_writer", "humanizer"]:
@@ -415,9 +416,22 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_post_topic"] = topic
         user_data["waiting_feedback"] = False
 
-        keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="revise")]]
+        keyboard = []
+        extra_buttons = []
+        if "СТОРИС" in remaining_sections:
+            extra_buttons.append(InlineKeyboardButton("📖 Сторис", callback_data="igshow:СТОРИС"))
+        if "КАРУСЕЛЬ" in remaining_sections:
+            extra_buttons.append(InlineKeyboardButton("🖼 Карусель", callback_data="igshow:КАРУСЕЛЬ"))
+        if "REELS" in remaining_sections:
+            extra_buttons.append(InlineKeyboardButton("🎬 Reels", callback_data="igshow:REELS"))
+        if extra_buttons:
+            keyboard.append(extra_buttons)
+        keyboard.append([InlineKeyboardButton("Доработать пост", callback_data="revise")])
+
+        extra_note = " Карусель, сторис и Reels уже готовы — показать их кнопкой ниже." if extra_buttons else ""
         await msg.reply_text(
-            "Если что-то не так — нажми кнопку и отправь голосовое или текст с правками.",
+            f"Telegram и Instagram-пост готовы.{extra_note}\n"
+            "Если что-то не так — нажми «Доработать пост» и отправь голосовое или текст с правками.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -833,6 +847,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pending_feedback"] = ""
         await query.edit_message_text(f"Запускаю доработку.\nПравки: {feedback}")
         await _run_post(query.message, topic, context.user_data, feedback=feedback)
+
+    elif data.startswith("igshow:"):
+        label = data[len("igshow:"):]
+        sections = context.user_data.get("pending_ig_sections", {})
+        content = sections.get(label)
+        if not content:
+            await query.answer("Не найдено — попробуй создать пост заново.", show_alert=True)
+            return
+        await _send(query.message, f"INSTAGRAM — {label} (от {ROLES['Даша']}):\n\n{content}")
 
     elif data.startswith("post:"):
         key = data[5:]  # "voice" или "text"
