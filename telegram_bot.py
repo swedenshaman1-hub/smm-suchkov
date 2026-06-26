@@ -832,14 +832,23 @@ FEEDBACK_KEYWORDS = [
     "слишком", "убери", "поправь", "измени", "не пойдёт", "не пойдет", "не годится", "тяжело",
     "лучше бы", "хочется", "не цепляет", "скучно", "длинно", "коротко",
 ]
+_FEEDBACK_PATTERNS = [re.compile(r"(?<!\w)" + re.escape(k) + r"(?!\w)", re.IGNORECASE) for k in FEEDBACK_KEYWORDS]
+
+NEW_TOPIC_MARKERS = [
+    "давай создадим пост", "давай напишем пост", "новая тема", "другая тема", "другую тему",
+    "новый пост на тему", "напиши пост про", "напиши пост о ", "создай пост про", "создай пост о ",
+]
+_NEW_TOPIC_PATTERNS = [re.compile(re.escape(k), re.IGNORECASE) for k in NEW_TOPIC_MARKERS]
 
 
 def _looks_like_feedback(text: str) -> bool:
     """Грубая проверка: похоже ли сообщение на правку к только что сданному посту,
     а не на запрос новой темы (иначе бот по словам "пост"/"сделай" запускал новый прогон
-    вместо доработки того, что уже есть)."""
-    t = text.lower()
-    return any(k in t for k in FEEDBACK_KEYWORDS)
+    вместо доработки того, что уже есть). Использует границы слов, чтобы не путать
+    "измени" с обычным словом "изменить" в произвольном тексте."""
+    if any(p.search(text) for p in _NEW_TOPIC_PATTERNS):
+        return False
+    return any(p.search(text) for p in _FEEDBACK_PATTERNS)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):

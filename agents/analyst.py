@@ -113,7 +113,7 @@ def run(topic: str, api_key: str, feedback: str = None) -> dict:
     if feedback:
         user_msg += f"\n\nВАЖНО: Другой агент прокомментировал:\n{feedback}\nУчти и скорректируй."
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.7)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 
     reflection_text = gemini_call(
         api_key, MODEL, system,
