@@ -183,8 +183,8 @@ def _split_instagram_sections(text: str) -> list:
         "КАРУСЕЛЬ": "КАРУСЕЛЬ",
         "REELS": "REELS",
     }
-    pattern = r"^\d\.\s*(ОСНОВНОЙ ПОСТ|СТОРИС-ПРОГРЕВ|КАРУСЕЛЬ|REELS)[^\n]*$"
-    matches = list(re.finditer(pattern, text, re.MULTILINE))
+    pattern = r"^[#\s]*\**\s*\d*[.\)]?\s*(ОСНОВНОЙ ПОСТ|СТОРИС[- ]ПРОГРЕВ|КАРУСЕЛЬ|REELS)\**\s*[^\n]*$"
+    matches = list(re.finditer(pattern, text, re.MULTILINE | re.IGNORECASE))
     if not matches:
         return [("INSTAGRAM-ПАКЕТ", text)]
 
@@ -192,7 +192,9 @@ def _split_instagram_sections(text: str) -> list:
     for i, m in enumerate(matches):
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        label = labels.get(m.group(1), m.group(1))
+        matched = m.group(1).upper().replace("-", " ")
+        matched = re.sub(r"\s+", " ", matched).replace("СТОРИС ПРОГРЕВ", "СТОРИС-ПРОГРЕВ")
+        label = labels.get(matched, matched)
         sections.append((label, text[start:end].strip()))
     return sections
 
@@ -377,9 +379,14 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
         final_ig_sections = dict(_split_instagram_sections(final_ig))
         ig_post_raw = final_ig_sections.pop("ПОСТ", final_ig)
-        ig_other_sections = final_ig_sections  # СТОРИС / КАРУСЕЛЬ / REELS — это сценарии и раскадровки,
-        # очеловечивание прозы им не нужно, и оно бы съело заголовки, по которым их разбивают на сообщения
+        ig_other_sections_raw = final_ig_sections  # СТОРИС / КАРУСЕЛЬ / REELS
         r_human = await _run_blocking(humanizer.run, topic, final_tg, ig_post_raw, GEMINI_API_KEY)
+
+        ig_other_sections = {}
+        for label, content in ig_other_sections_raw.items():
+            ig_other_sections[label] = await _run_blocking(
+                humanizer.humanize_structured_section, label, content, topic, GEMINI_API_KEY
+            )
 
         TG_MAX_LEN = 1800
         if len(r_human["telegram_humanized"]) > TG_MAX_LEN:
