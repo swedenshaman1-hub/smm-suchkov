@@ -117,13 +117,15 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_path = None
     try:
         loop = asyncio.get_running_loop()
-        audio_path = await loop.run_in_executor(None, _text_to_speech, text)
+        audio_path = await asyncio.wait_for(
+            loop.run_in_executor(None, _text_to_speech, text), timeout=150
+        )
         preview = text.strip().splitlines()[0][:60]
         with open(audio_path, "rb") as f:
             await query.message.reply_audio(f, title="Озвучка сообщения", caption=f"🔊 {preview}…")
     except Exception as e:
         logger.exception("Ошибка озвучки")
-        await query.message.reply_text(f"Не удалось озвучить: {e}")
+        await query.message.reply_text(f"Не удалось озвучить (сервис озвучки не ответил). Попробуй ещё раз через минуту.\n\nТехническая причина: {e}")
     finally:
         if audio_path:
             try:
@@ -135,8 +137,9 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _text_to_speech(text: str) -> str:
     """Озвучивает текст через Gemini TTS (надёжнее на облачных серверах, чем gTTS,
     который ходит на неофициальный эндпоинт Google Translate и часто блокирует datacenter IP)."""
-    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=60_000))
-    for attempt in range(2):
+    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=120_000))
+    last_error = None
+    for attempt in range(3):
         try:
             response = client.models.generate_content(
                 model="gemini-2.5-flash-preview-tts",
@@ -152,9 +155,12 @@ def _text_to_speech(text: str) -> str:
             )
             break
         except Exception as e:
-            if attempt == 0 and ("DEADLINE_EXCEEDED" in str(e) or "504" in str(e)):
+            last_error = e
+            if "DEADLINE_EXCEEDED" in str(e) or "504" in str(e) or "timeout" in str(e).lower():
                 continue
             raise
+    else:
+        raise TimeoutError(f"Gemini TTS не ответил за 3 попытки: {last_error}")
     pcm_data = response.candidates[0].content.parts[0].inline_data.data
 
     fd, path = tempfile.mkstemp(suffix=".wav")
@@ -368,7 +374,11 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await msg.reply_text(f"{ROLES['Лена']}: Всё отлично, без правок.")
 
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")
-        r_human = await _run_blocking(humanizer.run, topic, final_tg, final_ig, GEMINI_API_KEY)
+        final_ig_sections = dict(_split_instagram_sections(final_ig))
+        ig_post_raw = final_ig_sections.pop("ПОСТ", final_ig)
+        ig_other_sections = final_ig_sections  # СТОРИС / КАРУСЕЛЬ / REELS — это сценарии и раскадровки,
+        # очеловечивание прозы им не нужно, и оно бы съело заголовки, по которым их разбивают на сообщения
+        r_human = await _run_blocking(humanizer.run, topic, final_tg, ig_post_raw, GEMINI_API_KEY)
 
         TG_MAX_LEN = 1800
         if len(r_human["telegram_humanized"]) > TG_MAX_LEN:
@@ -379,10 +389,15 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 humanizer.trim_to_length, r_human["telegram_humanized"], TG_MAX_LEN, topic, GEMINI_API_KEY
             )
 
+        ig_post_content = r_human["instagram_humanized"]
+        full_ig_text = ig_post_content + "\n\n" + "\n\n".join(
+            f"{label}:\n{content}" for label, content in ig_other_sections.items()
+        )
+
         await msg.reply_text("Олег Савин — оцениваю виральный и коммерческий потенциал готового текста...")
         r_marketer = await _run_blocking(
             marketer.run, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
-            final_content=f"TELEGRAM:\n{r_human['telegram_humanized']}\n\nINSTAGRAM:\n{r_human['instagram_humanized']}"
+            final_content=f"TELEGRAM:\n{r_human['telegram_humanized']}\n\nINSTAGRAM:\n{full_ig_text}"
         )
         await _send(msg, f"{ROLES['Олег']}:\n\n{r_marketer['marketing']}")
 
@@ -390,20 +405,15 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         r_pub = await _run_blocking(
             publisher.run, topic,
             r_human["telegram_humanized"],
-            r_human["instagram_humanized"],
+            full_ig_text,
             GEMINI_API_KEY
         )
 
-        sections_dict = dict(_split_instagram_sections(r_human["instagram_humanized"]))
-        ig_post_content = sections_dict.pop("ПОСТ", None)
-        remaining_sections = sections_dict  # СТОРИС / КАРУСЕЛЬ / REELS, или весь пакет если разметка не распознана
+        remaining_sections = ig_other_sections
 
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
         await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
-        if ig_post_content:
-            await _send(msg, f"INSTAGRAM — ПОСТ (от {ROLES['Даша']}):\n\n{ig_post_content}")
-        else:
-            await _send(msg, f"INSTAGRAM (от {ROLES['Даша']}):\n\n{r_human['instagram_humanized']}")
+        await _send(msg, f"INSTAGRAM — ПОСТ (от {ROLES['Даша']}):\n\n{ig_post_content}")
 
         user_data["pending_ig_sections"] = remaining_sections
 
