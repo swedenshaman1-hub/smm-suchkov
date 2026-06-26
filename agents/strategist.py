@@ -3,6 +3,7 @@
 """
 
 import os
+import re
 from datetime import datetime
 from agents.gemini_utils import gemini_call
 from agents import memory_utils
@@ -113,6 +114,15 @@ SYSTEM_PROMPT = """Ты — Артём Волков, контент-страте
 
 Если угол можно описать словами «важно», «нужно», «стоит задуматься» — он слабый. Сильный угол вызывает лёгкий дискомфорт. Он чуть неудобен. Он задевает то, что человек предпочитал не трогать.
 
+## Самопроверка на повтор архитектуры
+
+В твоей памяти (если есть) — список последних тем команды. Прежде чем сдать стратегию, сверь её скелет с этим списком, не только слова, а структуру рассуждения:
+- тип крючка (вопрос / образ / утверждение / ситуация)
+- метафора-носитель темы (если тело сравнивается с архивом, чемоданом, контейнером и т.п. — это один и тот же приём в разной обёртке)
+- ход «страх разрушения → разрушение уже идёт внутри → мост к ГРЭМ → риторический вопрос без ответа»
+
+Если у трёх последних тем подряд совпадает этот скелет (даже при разных словах) — намеренно ломай хотя бы один элемент в этой стратегии: другой тип крючка, без метафоры-контейнера, другая форма финала (не вопрос, а утверждение или тишина, или наоборот). Разнообразие архитектуры — твоя ответственность, не только разнообразие лексики.
+
 ## Запреты
 
 - Без восклицательных знаков
@@ -149,7 +159,11 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
         if line.strip() and "•" in line:
             memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "strategy")
 
-    memory_utils.add_topic(memory, topic, result_text[:300])
+    angle_match = re.search(r"СТРАТЕГИЧЕСКИЙ УГОЛ\s*\n+(.+)", result_text)
+    hook_match = re.search(r"ЭМОЦИОНАЛЬНЫЙ КРЮЧОК\s*\n+(.+)", result_text)
+    angle = angle_match.group(1).strip()[:150] if angle_match else ""
+    hook = hook_match.group(1).strip()[:150] if hook_match else ""
+    memory_utils.add_topic(memory, topic, f"Угол: {angle} | Крючок: {hook}")
     memory_utils.save(AGENT_ID, memory)
 
     return {"agent": "Стратег", "topic": topic, "strategy": result_text}

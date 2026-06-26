@@ -187,4 +187,10 @@ def build_context(memory: dict, topic: str) -> str:
         for fb in feedback:
             lines.append(f"[{fb['from']}]: {fb['feedback']}")
 
+    topic_history = memory["topic_history"][-5:]
+    if topic_history:
+        lines.append("\nПОСЛЕДНИЕ ТЕМЫ КОМАНДЫ (проверь, не повторяешь ли ту же структуру/образ):")
+        for t in topic_history:
+            lines.append(f"• «{t['topic']}» — {t['summary'][:200]}")
+
     return "\n".join(lines)
