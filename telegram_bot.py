@@ -80,6 +80,34 @@ def _get_topic(user_data: dict, key: str) -> str:
     return user_data.get("topics", {}).get(key, "")
 
 
+SESSION_KEYS = ["last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics"]
+
+
+def _persist_session(chat_id: int, user_data: dict):
+    """Сохраняет ключевые поля разговора (тема последнего поста, ожидание правки,
+    несотправленные разделы Instagram) в Supabase — переживает рестарт/деплой процесса,
+    в отличие от чистого context.user_data."""
+    state = {k: user_data[k] for k in SESSION_KEYS if k in user_data}
+    try:
+        memory_utils.save_session_state(chat_id, state)
+    except Exception:
+        logger.exception("Не удалось сохранить состояние сессии")
+
+
+def _hydrate_session(chat_id: int, user_data: dict):
+    """Подтягивает состояние разговора из Supabase, если процесс перезапустился
+    и context.user_data оказался пустым."""
+    if "last_post_topic" in user_data:
+        return
+    try:
+        state = memory_utils.load_session_state(chat_id)
+    except Exception:
+        logger.exception("Не удалось загрузить состояние сессии")
+        return
+    for k, v in state.items():
+        user_data.setdefault(k, v)
+
+
 async def _send(msg: Message, text: str):
     text = _clean_markdown(text)
     limit = 4000
@@ -433,6 +461,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
         user_data["last_post_topic"] = topic
         user_data["waiting_feedback"] = False
+        _persist_session(msg.chat_id, user_data)
 
         keyboard = []
         extra_buttons = []
@@ -685,6 +714,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("GEMINI_API_KEY не задан")
         return
 
+    chat_id = update.effective_chat.id
+    _hydrate_session(chat_id, context.user_data)
+
     if context.user_data.get("waiting_feedback"):
         await update.message.reply_text("Получил правки голосом. Расшифровываю...")
         voice = update.message.voice
@@ -696,6 +728,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             feedback = await _transcribe_voice(tmp_path)
             context.user_data["waiting_feedback"] = False
             context.user_data["pending_feedback"] = feedback
+            _persist_session(chat_id, context.user_data)
             topic = context.user_data.get("last_post_topic", "")
             keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="confirm_revise")]]
             await update.message.reply_text(
@@ -797,6 +830,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
+    chat_id = update.effective_chat.id
+    _hydrate_session(chat_id, context.user_data)
+
     if (not context.user_data.get("waiting_feedback")
             and context.user_data.get("last_post_topic")
             and _looks_like_feedback(text)):
@@ -815,6 +851,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         context.user_data["waiting_feedback"] = False
         context.user_data["pending_feedback"] = text
+        _persist_session(chat_id, context.user_data)
         keyboard = [[InlineKeyboardButton("Доработать пост", callback_data="confirm_revise")]]
         await update.message.reply_text(
             f"Твои правки:\n\n{text}\n\nТема: «{topic}»",
@@ -874,12 +911,16 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
+    chat_id = update.effective_chat.id
+    _hydrate_session(chat_id, context.user_data)
+
     if data == "revise":
         topic = context.user_data.get("last_post_topic", "")
         if not topic:
             await query.edit_message_text("Нет сохранённого поста. Сначала создай пост.")
             return
         context.user_data["waiting_feedback"] = True
+        _persist_session(chat_id, context.user_data)
         await query.edit_message_text(
             f"Доработка поста по теме «{topic}»\n\n"
             "Отправь голосовое или напиши текстом — что именно изменить."

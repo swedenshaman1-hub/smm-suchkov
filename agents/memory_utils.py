@@ -68,6 +68,41 @@ def save(agent_id: str, memory: dict):
         json.dump(memory, f, ensure_ascii=False, indent=2)
 
 
+def save_session_state(chat_id, state: dict):
+    """Сохраняет состояние диалога с конкретным чатом (тема последнего поста, ожидание
+    правки, готовые-но-не-отправленные разделы Instagram), чтобы рестарт/деплой процесса
+    не сбрасывал то, на чём остановился разговор."""
+    client = _get_client()
+    if client:
+        try:
+            client.table("bot_session_state").upsert({
+                "chat_id": chat_id,
+                "state": state,
+            }).execute()
+            return
+        except Exception:
+            pass
+    os.makedirs(MEMORY_BASE, exist_ok=True)
+    with open(os.path.join(MEMORY_BASE, f"session_{chat_id}.json"), "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+
+def load_session_state(chat_id) -> dict:
+    client = _get_client()
+    if client:
+        try:
+            res = client.table("bot_session_state").select("state").eq("chat_id", chat_id).execute()
+            if res.data:
+                return res.data[0]["state"]
+        except Exception:
+            pass
+    path = os.path.join(MEMORY_BASE, f"session_{chat_id}.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
 def _empty_memory() -> dict:
     return {
         "profile": {
