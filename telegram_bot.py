@@ -354,16 +354,22 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
 
         loop = asyncio.get_running_loop()
-        r_copy, r_insta = await asyncio.gather(
-            loop.run_in_executor(None, lambda: copywriter.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
-                editor_feedback=feedback, iteration=2 if feedback else 1
-            )),
-            loop.run_in_executor(None, lambda: instagram_writer.run(
-                topic, r_analyst["analysis"], r_strategist["strategy"], "", GEMINI_API_KEY,
-                editor_feedback=feedback, iteration=2 if feedback else 1
-            ))
-        )
+        try:
+            r_copy, r_insta = await asyncio.wait_for(
+                asyncio.gather(
+                    loop.run_in_executor(None, lambda: copywriter.run(
+                        topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
+                        editor_feedback=feedback, iteration=2 if feedback else 1
+                    )),
+                    loop.run_in_executor(None, lambda: instagram_writer.run(
+                        topic, r_analyst["analysis"], r_strategist["strategy"], "", GEMINI_API_KEY,
+                        editor_feedback=feedback, iteration=2 if feedback else 1
+                    ))
+                ),
+                timeout=180
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError("Запрос к Gemini не ответил за 3 минуты (Маша/Катя) — вероятно, временный сбой сети. Попробуй ещё раз.")
         await msg.reply_text(
             f"{ROLES['Маша']} — готово, передаю Игорю на проверку.\n"
             f"{ROLES['Катя']} — пакет готов, Лена смотри."
