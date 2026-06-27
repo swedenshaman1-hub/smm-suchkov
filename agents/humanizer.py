@@ -161,14 +161,20 @@ SYSTEM_PROMPT = """Ты — Даша Козлова, последний филь
 Только русский язык."""
 
 
-def _looks_truncated(text: str) -> bool:
-    """Грубая проверка на обрыв текста на полуслове — иногда Gemini обрывает ответ
-    (safety/recitation/иные причины остановки) без явной ошибки, и текст без этой
-    проверки тихо уходит читателю недописанным."""
+def _looks_truncated(text: str, original_len: int = 0) -> bool:
+    """Проверка на обрыв текста — иногда Gemini обрывает ответ (safety/recitation/
+    иные причины остановки) без явной ошибки. Обрыв может выглядеть как грамматически
+    законченное предложение («...как меня видят.») и при этом потерять весь финал —
+    поэтому помимо знака конца предложения проверяем, не стал ли текст подозрительно
+    короче исходного (очеловечивание не должно сокращать текст вдвое)."""
     stripped = text.strip()
     if not stripped:
         return True
-    return stripped[-1] not in ".!?»\"…)"
+    if stripped[-1] not in ".!?»\"…)":
+        return True
+    if original_len and len(stripped) < original_len * 0.65:
+        return True
+    return False
 
 
 def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_key: str) -> str:
@@ -190,13 +196,15 @@ def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_k
 
     result = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85,
                           disable_thinking=True).strip()
-    if _looks_truncated(result):
-        # Похоже, ответ обрезался на полуслове — пробуем ещё раз с чуть другой температурой,
-        # не тащим обрезанный вариант дальше по конвейеру.
+    if _looks_truncated(result, len(text)):
+        # Похоже, ответ обрезался — либо на полуслове, либо потерял содержание, оставшись
+        # грамматически законченным, но заметно короче исходного. Пробуем ещё раз.
         retry = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.7,
                              disable_thinking=True).strip()
-        if not _looks_truncated(retry):
+        if not _looks_truncated(retry, len(text)):
             return retry
+        # Оба обрезались — берём более длинный/полный из двух, а не первый по умолчанию
+        return retry if len(retry) > len(result) else result
     return result
 
 
