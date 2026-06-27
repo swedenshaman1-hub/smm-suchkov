@@ -251,16 +251,28 @@ def _split_instagram_sections(text: str) -> list:
 
 def _extract_variant(text: str, letter: str) -> str:
     """Достаёт текст конкретного варианта (А/Б) из ответа копирайтера, чтобы
-    дальше по цепочке передавался только выбранный вариант, а не оба сразу."""
-    if not letter:
-        return text
-    pattern = rf"ВАРИАНТ\s+{letter}\b.*?(?=ВАРИАНТ\s+[АБ]\b|ПОЧЕМУ\s+ЭТИ\s+ДВА\s+ВАРИАНТА|\Z)"
-    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-    if not match:
-        return text
-    chunk = match.group(0).strip()
-    lines = chunk.split("\n", 1)
-    return lines[1].strip() if len(lines) > 1 else chunk
+    дальше по цепочке передавался только выбранный вариант, а не оба сразу.
+    Если редактор не назвал явный вариант (Gemini иногда не выводит строку
+    "РЕКОМЕНДУЕМЫЙ ВАРИАНТ") — нельзя отдавать сырой текст с обоими вариантами
+    дальше по конвейеру, иначе оба варианта склеятся в финальном посте.
+    В этом случае берём вариант А по умолчанию, а не весь текст."""
+    pattern_for = lambda l: rf"ВАРИАНТ\s+{l}\b.*?(?=ВАРИАНТ\s+[АБ]\b|ПОЧЕМУ\s+ЭТИ\s+ДВА\s+ВАРИАНТА|\Z)"
+
+    def _try_extract(l: str):
+        match = re.search(pattern_for(l), text, re.DOTALL | re.IGNORECASE)
+        if not match:
+            return None
+        chunk = match.group(0).strip()
+        lines = chunk.split("\n", 1)
+        return lines[1].strip() if len(lines) > 1 else chunk
+
+    if letter:
+        result = _try_extract(letter)
+        if result:
+            return result
+    # Нет явного выбора или паттерн не нашёлся — берём вариант А как детерминированный фолбэк
+    fallback = _try_extract("А")
+    return fallback if fallback else text
 
 
 async def _run_blocking(fn, *args, **kwargs):
