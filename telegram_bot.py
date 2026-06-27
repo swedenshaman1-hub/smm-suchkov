@@ -513,7 +513,13 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
     except Exception as e:
         logger.exception("Ошибка в _run_post")
-        await msg.reply_text(f"Ошибка: {e}")
+        if "503" in str(e) or "UNAVAILABLE" in str(e) or "overloaded" in str(e).lower():
+            await msg.reply_text(
+                "Gemini сейчас перегружен и не отвечает (это на стороне Google, не у нас). "
+                "Подожди пару минут и пришли тему ещё раз — обычно само проходит."
+            )
+        else:
+            await msg.reply_text(f"Ошибка: {e}")
 
 
 async def _run_offer(msg: Message, product: str):
