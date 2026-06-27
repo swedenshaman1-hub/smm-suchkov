@@ -157,10 +157,12 @@ def _strip_label_header(text: str) -> str:
 async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    text = _strip_label_header(query.message.text or "")
+    raw_text = query.message.text or ""
+    text = _strip_label_header(raw_text)
     if not text.strip():
         await query.message.reply_text("Нечего озвучивать — сообщение пустое.")
         return
+    label_line = raw_text.strip().splitlines()[0] if raw_text != text else ""
     audio_path = None
     await query.message.reply_text("🔊 Озвучиваю — может занять до пары минут...")
     try:
@@ -169,8 +171,9 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
             loop.run_in_executor(None, _text_to_speech, text), timeout=150
         )
         preview = text.strip().splitlines()[0][:60]
+        caption = f"🔊 {label_line}\n{preview}…" if label_line else f"🔊 {preview}…"
         with open(audio_path, "rb") as f:
-            await query.message.reply_audio(f, title="Озвучка сообщения", caption=f"🔊 {preview}…")
+            await query.message.reply_audio(f, title=label_line or "Озвучка сообщения", caption=caption)
     except Exception as e:
         logger.exception("Ошибка озвучки")
         await query.message.reply_text(f"Не удалось озвучить (сервис озвучки не ответил). Попробуй ещё раз через минуту.\n\nТехническая причина: {e}")
