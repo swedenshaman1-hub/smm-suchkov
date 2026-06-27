@@ -161,6 +161,16 @@ SYSTEM_PROMPT = """Ты — Даша Козлова, последний филь
 Только русский язык."""
 
 
+def _looks_truncated(text: str) -> bool:
+    """Грубая проверка на обрыв текста на полуслове — иногда Gemini обрывает ответ
+    (safety/recitation/иные причины остановки) без явной ошибки, и текст без этой
+    проверки тихо уходит читателю недописанным."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    return stripped[-1] not in ".!?»\"…)"
+
+
 def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_key: str) -> str:
     user_msg = f"""Тема: «{topic}»
 
@@ -178,8 +188,16 @@ def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_k
 Выведи ТОЛЬКО готовый финальный текст для публикации — без заголовков, без пометок
 «очеловечено», без комментариев о том, что ты правила. Просто чистый текст, готовый к копированию и публикации как есть."""
 
-    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85,
-                        disable_thinking=True).strip()
+    result = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85,
+                          disable_thinking=True).strip()
+    if _looks_truncated(result):
+        # Похоже, ответ обрезался на полуслове — пробуем ещё раз с чуть другой температурой,
+        # не тащим обрезанный вариант дальше по конвейеру.
+        retry = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.7,
+                             disable_thinking=True).strip()
+        if not _looks_truncated(retry):
+            return retry
+    return result
 
 
 def humanize_structured_section(label: str, content: str, topic: str, api_key: str) -> str:
