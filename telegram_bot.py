@@ -444,6 +444,16 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 humanizer.trim_to_length, r_human["telegram_humanized"], TG_MAX_LEN, topic, GEMINI_API_KEY
             )
 
+        for key in ("telegram_humanized", "instagram_humanized"):
+            found = humanizer.find_denylisted(r_human[key])
+            if found:
+                await msg.reply_text(
+                    f"{ROLES['Даша']}: нашла запрещённые штампы ({', '.join(found)}) — переписываю эти места..."
+                )
+                r_human[key] = await _run_blocking(
+                    humanizer.force_remove_cliches, r_human[key], found, topic, GEMINI_API_KEY
+                )
+
         ig_post_content = r_human["instagram_humanized"]
         full_ig_text = ig_post_content + "\n\n" + "\n\n".join(
             f"{label}:\n{content}" for label, content in ig_other_sections.items()
