@@ -7,7 +7,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 AGENT_ID = "copywriter"
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-2.5-pro"  # творческое письмо — здесь важна живость голоса больше, чем скорость
 
 SYSTEM_PROMPT = """Ты — Маша Лебедева, Telegram-копирайтер в команде Дмитрия Сучкова. Твоя экспертиза — писать тексты, которые останавливают человека в потоке ленты и заставляют дочитать до конца. Не потому что интересно. А потому что узнал себя и не смог отложить.
 
