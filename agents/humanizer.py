@@ -194,12 +194,12 @@ def _humanize_one(platform_label: str, text: str, topic: str, system: str, api_k
 Выведи ТОЛЬКО готовый финальный текст для публикации — без заголовков, без пометок
 «очеловечено», без комментариев о том, что ты правила. Просто чистый текст, готовый к копированию и публикации как есть."""
 
-    result = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.85,
+    result = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.85,
                           disable_thinking=True).strip()
     if _looks_truncated(result, len(text)):
         # Похоже, ответ обрезался — либо на полуслове, либо потерял содержание, оставшись
         # грамматически законченным, но заметно короче исходного. Пробуем ещё раз.
-        retry = gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.7,
+        retry = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.7,
                              disable_thinking=True).strip()
         if not _looks_truncated(retry, len(text)):
             return retry
@@ -228,7 +228,7 @@ def humanize_structured_section(label: str, content: str, topic: str, api_key: s
 
 Выведи весь раздел целиком, с той же структурой и разметкой, только с живым текстом внутри. Без комментариев о правках."""
 
-    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.85,
+    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.85,
                         disable_thinking=True).strip()
 
 
@@ -262,7 +262,7 @@ def force_remove_cliches(text: str, found: list, topic: str, api_key: str) -> st
 
 Выведи текст целиком после правки, без пометок и комментариев."""
 
-    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=4000, temperature=0.7,
+    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.7,
                         disable_thinking=True).strip()
 
 
@@ -286,7 +286,7 @@ def trim_to_length(text: str, max_len: int, topic: str, api_key: str) -> str:
 Сократи до {max_len} символов или меньше. Результат должен заканчиваться полным, завершённым предложением — не на полуслове и не многоточием как будто текст обрезан.
 Выведи только сокращённый текст, без пометок."""
 
-    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=3000, temperature=0.4,
+    return gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.4,
                         disable_thinking=True).strip()
 
 

@@ -16,7 +16,9 @@ def gemini_call(api_key: str, model: str, system: str, user_msg: str,
         max_output_tokens=max_tokens,
         temperature=temperature,
     )
-    if disable_thinking:
+    # gemini-2.5-pro не поддерживает thinking_budget=0 ("This model only works in
+    # thinking mode") — отключение размышления применимо только к flash-моделям.
+    if disable_thinking and "pro" not in model:
         config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
 
     for attempt in range(attempts):
