@@ -204,12 +204,6 @@ def build_context(memory: dict, topic: str) -> str:
         for ins in relevant:
             lines.append(f"• {ins}")
 
-    successful = memory["techniques"]["successful"][-5:]
-    if successful:
-        lines.append("\nЧТО РАБОТАЛО ЛУЧШЕ ВСЕГО:")
-        for t in successful:
-            lines.append(f"✓ {t['text']} [тема: {t['topic']}]")
-
     failed = memory["techniques"]["failed"][-3:]
     if failed:
         lines.append("\nЧТО НЕ РАБОТАЛО (избегать):")
