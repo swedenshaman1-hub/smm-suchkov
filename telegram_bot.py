@@ -36,7 +36,8 @@ from agents import (
     analyst, strategist, marketer, copywriter,
     instagram_writer, editor, instagram_editor,
     humanizer, publisher, offer_architect, team_architect, content_planner,
-    community_manager, comment_analyst, channel_stats, channel_analyst
+    community_manager, comment_analyst, channel_stats, channel_analyst,
+    instagram_stats, instagram_analyst
 )
 from agents import memory_utils
 
@@ -67,6 +68,24 @@ def _clean_markdown(text: str) -> str:
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^\*\n]+?)\*(?!\*)", r"\1", text)
     return text
+
+
+_VOICE_FILLER_RE = re.compile(r"\b(ммм+|э-э+|эм+|ну вот|короче|так)\b[,.]?\s*", re.IGNORECASE)
+_VOICE_COMMAND_PREFIX_RE = re.compile(
+    r"^(о'?кей[,.]?\s*)?(создай|напиши|сделай|сгенерируй)\s+(мне\s+)?(пост|оффер)\s+(на\s+тему|про|о)\s+",
+    re.IGNORECASE
+)
+
+
+def _clean_voice_topic(text: str) -> str:
+    """Убирает из расшифровки голосовой команды служебную обёртку («окей, создай пост на тему»)
+    и слова-паразиты («ммм», «э-э»), оставляя только содержательную тему — иначе она целиком
+    уходит в пайплайн как тема и сбивает анализ ЦА и стратегию."""
+    cleaned = text.strip()
+    cleaned = _VOICE_FILLER_RE.sub("", cleaned)
+    cleaned = _VOICE_COMMAND_PREFIX_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,.")
+    return cleaned if cleaned else text.strip()
 
 
 def _store_topic(user_data: dict, key: str, value: str):
@@ -834,9 +853,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _run_promptcheck(update.message)
             return
 
-        # Сохраняем полный текст в user_data — без обрезки
-        _store_topic(context.user_data, "voice_post", transcript)
-        _store_topic(context.user_data, "voice_offer", transcript)
+        # Сохраняем очищенную от служебной обёртки и слов-паразитов тему — полную расшифровку
+        # пользователь уже увидел выше, а в пайплайн должна уйти только содержательная часть
+        cleaned_topic = _clean_voice_topic(transcript)
+        _store_topic(context.user_data, "voice_post", cleaned_topic)
+        _store_topic(context.user_data, "voice_offer", cleaned_topic)
         keyboard = [
             [InlineKeyboardButton("Создать пост", callback_data="post:voice")],
             [InlineKeyboardButton("Создать оффер", callback_data="ofr:voice")],
@@ -1150,6 +1171,62 @@ async def job_weekly_promptcheck(context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Ошибка в еженедельном аудите промптов")
 
 
+async def _run_igstats(message: Message):
+    if not GEMINI_API_KEY:
+        await message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    await message.reply_text("Анализирую реальную статистику Instagram...")
+    try:
+        r = await _run_blocking(instagram_analyst.run, GEMINI_API_KEY)
+        if r["status"] == "not_configured":
+            await message.reply_text(r["message"])
+            return
+        header = (f"━━━━━━━━━━━━━━━━━━━\nАналитик Instagram (по {r['posts_count']} постам, "
+                  f"{r['follower_points']} точкам подписчиков)\n━━━━━━━━━━━━━━━━━━━")
+        await message.reply_text(header)
+        await _send(message, r["analysis"])
+    except Exception as e:
+        logger.exception("Ошибка в анализе Instagram")
+        await message.reply_text(f"Ошибка: {e}")
+
+
+async def cmd_igstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _run_igstats(update.message)
+
+
+async def cmd_igsync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+
+    await update.message.reply_text("Обновляю выводы команды по реальной статистике Instagram...")
+    try:
+        r = await _run_blocking(instagram_analyst.sync_to_team_memory, GEMINI_API_KEY)
+        if r["status"] == "not_configured":
+            await update.message.reply_text(
+                "IG_BUSINESS_ACCOUNT_ID / IG_ACCESS_TOKEN не заданы в .env."
+            )
+            return
+        if r["status"] == "not_enough_data":
+            await update.message.reply_text(
+                f"Данных мало для обновления (постов: {r['posts_count']}, нужно минимум 5)."
+            )
+            return
+        lines = [f"Обновлено на основе {r['posts_count']} постов Instagram.\n"]
+        if r["successful"]:
+            lines.append("РАБОТАЕТ:")
+            lines += [f"• {s}" for s in r["successful"]]
+        if r["failed"]:
+            lines.append("\nНЕ РАБОТАЕТ:")
+            lines += [f"• {s}" for s in r["failed"]]
+        lines.append("\nЭти выводы теперь учитываются Артёмом, Ниной, Катей и Леной при создании новых постов.")
+        await _send(update.message, "\n".join(lines))
+    except Exception as e:
+        logger.exception("Ошибка в /igsync")
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Команда не распознана. Напиши /help для списка команд.")
 
@@ -1215,6 +1292,8 @@ def main():
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
     app.add_handler(CommandHandler("promptcheck", cmd_promptcheck))
+    app.add_handler(CommandHandler("igstats", cmd_igstats))
+    app.add_handler(CommandHandler("igsync", cmd_igsync))
     app.add_handler(CallbackQueryHandler(handle_tts, pattern="^tts$"))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
