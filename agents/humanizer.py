@@ -304,7 +304,11 @@ def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> di
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
     tg_humanized = _humanize_one("Telegram", telegram_text, topic, system, api_key)
-    ig_humanized = _humanize_one("Instagram", instagram_text, topic, system, api_key)
+
+    # Защита от бага: если instagram_text содержит внутреннюю переписку агентов
+    # (Лена обрезала фидбек, Катя не получила нормальный текст) — пропускаем очеловечивание
+    ig_is_post = instagram_text and len(instagram_text) > 100 and not instagram_text.strip().startswith(("Привет,", "Спасибо", "Артём", "Лена", "Катя", "Игорь", "Даша", "Маша"))
+    ig_humanized = _humanize_one("Instagram", instagram_text, topic, system, api_key) if ig_is_post else instagram_text
 
     reflection_text = gemini_call(
         api_key, MODEL, system,

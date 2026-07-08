@@ -133,7 +133,7 @@ INSTAGRAM-ПАКЕТ КАТИ (итерация {iteration}):
 
 Выпиши ключевые параметры из ТЗ Артёма. Проверь все форматы по чеклисту. Вынеси вердикт по каждому формату и ОБЩИЙ ВЕРДИКТ."""
 
-    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.6)
+    result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.6)
 
     accepted = "готов к очеловечиванию" in result_text.lower() or \
                ("РЕШЕНИЕ INSTAGRAM: ПРИНЯТО" in result_text and "РЕШЕНИЕ INSTAGRAM: ОТКЛОНЕНО" not in result_text)
