@@ -511,7 +511,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             publisher.run, topic,
             r_human["telegram_humanized"],
             full_ig_text,
-            GEMINI_API_KEY
+            GEMINI_API_KEY,
+            strategy_output=r_strategist["strategy"]
         )
 
         remaining_sections = ig_other_sections

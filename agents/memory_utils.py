@@ -221,6 +221,29 @@ def get_recent_ctas(n: int = 6) -> list:
     return _get_team_elements("used_ctas", n)
 
 
+def add_used_angle(angle: str, topic: str):
+    """Аспект темы, выбранный Ниной (какую грань темы она раскрывает) — трекается
+    отдельно от образа и формата, чтобы поймать повтор на уровне ВЫБОРА, а не только
+    лексики: команда может каждый раз менять слова, но выбирать один и тот же
+    психологический архетип (например, «человек всем помогает и забыл себя»)."""
+    _add_team_element("used_angles", angle, topic)
+
+
+def get_recent_angles(n: int = 8) -> list:
+    return _get_team_elements("used_angles", n)
+
+
+def add_used_scheme(scheme: str, topic: str):
+    """Смысловая схема сюжета одним предложением (напр. «человек жертвует собой →
+    истощается → возвращается к себе») — повтор схемы это повтор даже когда слова,
+    образ и формат все разные."""
+    _add_team_element("used_schemes", scheme, topic)
+
+
+def get_recent_schemes(n: int = 8) -> list:
+    return _get_team_elements("used_schemes", n)
+
+
 def add_feedback(memory: dict, from_agent: str, feedback: str, topic: str):
     memory["team_feedback"].append({
         "from": from_agent,
@@ -269,6 +292,18 @@ def build_context(memory: dict, topic: str) -> str:
         lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТИ CTA-СЛОВА/ФРАЗЫ — уже использованы в недавних постах команды:")
         for c in recent_ctas:
             lines.append(f"✗ {c}")
+
+    recent_angles = get_recent_angles(n=8)
+    if recent_angles:
+        lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТОТ ВЫБОР — грани/аспекты темы, уже раскрытые в недавних материалах команды (выбери другую грань, даже если слова будут другими):")
+        for a in recent_angles:
+            lines.append(f"✗ {a}")
+
+    recent_schemes = get_recent_schemes(n=8)
+    if recent_schemes:
+        lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТУ СХЕМУ СЮЖЕТА — уже использована в недавних материалах команды, даже если слова и образ будут другими:")
+        for s in recent_schemes:
+            lines.append(f"✗ {s}")
 
     audience_profile = get_audience_profile(memory)
     if audience_profile:
