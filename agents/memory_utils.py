@@ -162,6 +162,65 @@ def add_topic(memory: dict, topic: str, summary: str):
     memory["topic_history"] = memory["topic_history"][-50:]
 
 
+TEAM_AGENT_ID = "team_shared"
+
+
+def add_used_image(image: str, topic: str):
+    """Реестр центральных образов на уровне всей команды, а не одного агента —
+    иначе Артём в новой сессии не видит, что Маша/Катя уже увели образ в сторону,
+    и наоборот. Без этого повтор образа ловится только человеческим глазом на проде."""
+    if not image or not image.strip():
+        return
+    memory = load(TEAM_AGENT_ID)
+    memory.setdefault("used_images", [])
+    memory["used_images"].append({
+        "image": image.strip(),
+        "topic": topic,
+        "date": datetime.now().isoformat()
+    })
+    memory["used_images"] = memory["used_images"][-15:]
+    save(TEAM_AGENT_ID, memory)
+
+
+def get_recent_images(n: int = 10) -> list:
+    memory = load(TEAM_AGENT_ID)
+    return [i["image"] for i in memory.get("used_images", [])[-n:]]
+
+
+def _add_team_element(key: str, value: str, topic: str, keep_last: int = 15):
+    if not value or not value.strip():
+        return
+    memory = load(TEAM_AGENT_ID)
+    memory.setdefault(key, [])
+    memory[key].append({"value": value.strip(), "topic": topic, "date": datetime.now().isoformat()})
+    memory[key] = memory[key][-keep_last:]
+    save(TEAM_AGENT_ID, memory)
+
+
+def _get_team_elements(key: str, n: int) -> list:
+    memory = load(TEAM_AGENT_ID)
+    return [i["value"] for i in memory.get(key, [])[-n:]]
+
+
+def add_used_format(fmt: str, topic: str):
+    """Архитектура/формат поста (нарратив, диалог, монолог...) — трекается отдельно
+    от центрального образа, чтобы Маша не повторяла один и тот же скелет два раза подряд
+    даже когда образы уже разные."""
+    _add_team_element("used_formats", fmt, topic)
+
+
+def get_recent_formats(n: int = 6) -> list:
+    return _get_team_elements("used_formats", n)
+
+
+def add_used_cta(cta: str, topic: str):
+    _add_team_element("used_ctas", cta, topic)
+
+
+def get_recent_ctas(n: int = 6) -> list:
+    return _get_team_elements("used_ctas", n)
+
+
 def add_feedback(memory: dict, from_agent: str, feedback: str, topic: str):
     memory["team_feedback"].append({
         "from": from_agent,
@@ -192,6 +251,24 @@ def build_context(memory: dict, topic: str) -> str:
     count = memory["profile"].get("sessions_count", 0)
     if count > 0:
         lines.append(f"\n\n═══ ТВОЯ ПАМЯТЬ ({count} сессий) ═══")
+
+    recent_images = get_recent_images(n=10)
+    if recent_images:
+        lines.append("\n⛔ ЗАПРЕЩЕНО ПОВТОРЯТЬ — центральные образы, уже использованные в недавних постах команды (не только дословно, но и по типу — «сторож» и «страж» и «охранник» это один и тот же образ):")
+        for img in recent_images:
+            lines.append(f"✗ {img}")
+
+    recent_formats = get_recent_formats(n=6)
+    if recent_formats:
+        lines.append("\n⛔ НЕ ПОВТОРЯЙ АРХИТЕКТУРУ — форматы/скелеты, уже использованные в недавних постах команды (выбери другой тип):")
+        for f in recent_formats:
+            lines.append(f"✗ {f}")
+
+    recent_ctas = get_recent_ctas(n=6)
+    if recent_ctas:
+        lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТИ CTA-СЛОВА/ФРАЗЫ — уже использованы в недавних постах команды:")
+        for c in recent_ctas:
+            lines.append(f"✗ {c}")
 
     audience_profile = get_audience_profile(memory)
     if audience_profile:
