@@ -117,7 +117,7 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
 
 SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
-    "ambiguous_feedback_text",
+    "ambiguous_feedback_text", "last_analysis", "last_strategy",
 ]
 
 
@@ -373,14 +373,33 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             f"Команда берётся за тему:\n«{topic}»\n\nАгенты работают последовательно, займёт 2–4 минуты..."
         )
 
-    try:
-        await msg.reply_text("Нина Соколова — анализирую аудиторию...")
-        r_analyst = await _run_blocking(analyst.run, topic, GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Нина']}:\n\n{r_analyst['analysis']}")
+    # Доработка по фидбеку от Дмитрия — это правка уже одобренного поста (тон, теплота,
+    # конкретная формулировка), а не запрос на новую тему. Раньше фидбек всё равно гнал
+    # Нину и Артёма с нуля — а поскольку они обязаны не повторять недавний аспект/образ/
+    # схему, второй прогон на ту же тему уводил в совершенно другой угол вместо того чтобы
+    # просто сделать текст теплее. Если это правка того же поста — переиспользуем уже
+    # одобренные анализ и стратегию и правим только тексты.
+    reuse_previous = bool(
+        feedback and user_data.get("last_post_topic") == topic
+        and user_data.get("last_analysis") and user_data.get("last_strategy")
+    )
 
-        await msg.reply_text("Артём Волков — строю стратегию...")
-        r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
-        await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
+    try:
+        if reuse_previous:
+            await msg.reply_text(
+                "Переиспользую уже одобренные анализ Нины и стратегию Артёма — правлю сам текст, "
+                "не меняю тему заново."
+            )
+            r_analyst = {"analysis": user_data["last_analysis"]}
+            r_strategist = {"strategy": user_data["last_strategy"]}
+        else:
+            await msg.reply_text("Нина Соколова — анализирую аудиторию...")
+            r_analyst = await _run_blocking(analyst.run, topic, GEMINI_API_KEY)
+            await _send(msg, f"{ROLES['Нина']}:\n\n{r_analyst['analysis']}")
+
+            await msg.reply_text("Артём Волков — строю стратегию...")
+            r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
+            await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
 
         if feedback:
             await msg.reply_text(
@@ -630,6 +649,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 memory_utils.save(agent_id, mem)
 
         user_data["last_post_topic"] = topic
+        user_data["last_analysis"] = r_analyst["analysis"]
+        user_data["last_strategy"] = strategy_output
         user_data["waiting_feedback"] = False
         _persist_session(msg.chat_id, user_data)
 
