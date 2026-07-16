@@ -117,8 +117,19 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
 
 SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
-    "ambiguous_feedback_text", "last_analysis", "last_strategy",
+    "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
 ]
+
+# Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
+# Нину, Артёма, Машу и Катю (маршрут "Даша → редактор" из ТЗ на правки команды).
+_TONAL_FEEDBACK_KEYWORDS = (
+    "тепл", "жив", "проще", "простот", "ближе", "пафос", "легче", "по-человечески", "человечнее",
+)
+
+
+def _is_tonal_feedback(text: str) -> bool:
+    t = text.lower()
+    return any(kw in t for kw in _TONAL_FEEDBACK_KEYWORDS)
 
 
 def _persist_session(chat_id: int, user_data: dict):
@@ -364,6 +375,66 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
 
 
 async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
+    # Маршрутизация правок: тональная правка («теплее», «живее», «проще», «ближе», «меньше
+    # пафоса») идёт сразу к Даше и на быструю проверку редактора — минуя Нину, Артёма, Машу
+    # и Катю целиком. Раньше даже такая правка гоняла всю команду заново.
+    tonal_revision = bool(
+        feedback and _is_tonal_feedback(feedback)
+        and user_data.get("last_post_topic") == topic
+        and user_data.get("last_final_tg") and user_data.get("last_final_ig_post")
+        and user_data.get("last_analysis") and user_data.get("last_strategy")
+    )
+
+    if tonal_revision:
+        await msg.reply_text(
+            f"Это похоже на правку тона, а не смысла — передаю сразу Даше, "
+            f"минуя Нину, Артёма, Машу и Катю.\n\nПравка: {feedback}"
+        )
+        try:
+            await msg.reply_text(f"{ROLES['Даша']} — тональная переработка текста...")
+            new_tg = await _run_blocking(
+                humanizer.deep_tonal_rework, user_data["last_final_tg"], topic, feedback, GEMINI_API_KEY
+            )
+            new_ig = await _run_blocking(
+                humanizer.deep_tonal_rework, user_data["last_final_ig_post"], topic, feedback, GEMINI_API_KEY
+            )
+
+            found_tg = humanizer.find_denylisted(new_tg)
+            if found_tg:
+                new_tg = await _run_blocking(humanizer.force_remove_cliches, new_tg, found_tg, topic, GEMINI_API_KEY)
+            found_ig = humanizer.find_denylisted(new_ig)
+            if found_ig:
+                new_ig = await _run_blocking(humanizer.force_remove_cliches, new_ig, found_ig, topic, GEMINI_API_KEY)
+
+            if not _looks_like_real_post(new_tg) or not _looks_like_real_post(new_ig):
+                await msg.reply_text(
+                    "Что-то пошло не так при тональной переработке — результат не похож на готовый "
+                    "текст. Попробуй ещё раз или создай пост заново."
+                )
+                return
+
+            await msg.reply_text(f"{ROLES['Игорь']} и {ROLES['Лена']} — проверяю после переработки...")
+            r_check_tg = await _run_blocking(editor.quick_check, topic, user_data["last_strategy"], new_tg, GEMINI_API_KEY)
+            r_check_ig = await _run_blocking(instagram_editor.quick_check, topic, user_data["last_strategy"], new_ig, GEMINI_API_KEY)
+
+            if not r_check_tg["accepted"]:
+                await _send(msg, f"{ROLES['Игорь']}: после переработки есть замечания:\n\n{r_check_tg['review']}")
+            if not r_check_ig["accepted"]:
+                await _send(msg, f"{ROLES['Лена']}: после переработки есть замечания:\n\n{r_check_ig['review']}")
+
+            await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nТональная переработка готова\n━━━━━━━━━━━━━━━━━━━")
+            await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{new_tg}")
+            await _send(msg, f"INSTAGRAM — ПОСТ (от {ROLES['Даша']}):\n\n{new_ig}")
+
+            user_data["last_final_tg"] = new_tg
+            user_data["last_final_ig_post"] = new_ig
+            user_data["waiting_feedback"] = False
+            _persist_session(msg.chat_id, user_data)
+        except Exception as e:
+            logger.exception("Ошибка в тональной переработке")
+            await msg.reply_text(f"Ошибка при тональной переработке: {e}")
+        return
+
     if feedback:
         await msg.reply_text(
             f"Команда дорабатывает пост по теме:\n«{topic}»\n\nПравки: {feedback}\n\nЗаймёт 2–4 минуты..."
@@ -651,6 +722,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_post_topic"] = topic
         user_data["last_analysis"] = r_analyst["analysis"]
         user_data["last_strategy"] = strategy_output
+        user_data["last_final_tg"] = r_human["telegram_humanized"]
+        user_data["last_final_ig_post"] = ig_post_content
         user_data["waiting_feedback"] = False
         _persist_session(msg.chat_id, user_data)
 
