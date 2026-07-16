@@ -119,7 +119,9 @@ SYSTEM_PROMPT = """Ты — Лена Волкова, редактор Instagram-
 
 ВЕРДИКТ по формату: Одобрен / Требует доработки / Отклонён
 
-ОБЩИЙ ВЕРДИКТ: Готов к очеловечиванию / Требует доработки / Отклонён полностью
+ОБЩИЙ ВЕРДИКТ: Готов к очеловечиванию / Требует доработки / Отклонён полностью / Проблема в стратегии (не в реализации Кати)
+
+**ПЕРВОЙ строкой ответа, до начала разбора**, укажи одно из: «РЕШЕНИЕ INSTAGRAM: ОДОБРЕН» / «РЕШЕНИЕ INSTAGRAM: ТРЕБУЕТ ДОРАБОТКИ» / «РЕШЕНИЕ INSTAGRAM: ПРОБЛЕМА В СТРАТЕГИИ» — с однострочным обоснованием. Это обязательно должно быть первой строкой: если разбор обрежется по длине, решение всё равно должно быть зафиксировано.
 
 ## Запреты
 
@@ -153,12 +155,17 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 INSTAGRAM-ПАКЕТ КАТИ (итерация {iteration}):
 {instagram_output}
 
-Выпиши ключевые параметры из ТЗ Артёма. Проверь все форматы по чеклисту. Вынеси вердикт по каждому формату и ОБЩИЙ ВЕРДИКТ."""
+Сначала пройди блок «СНАЧАЛА СТРАТЕГИЯ И ЖИВОСТЬ». Если он не пройден — зафиксируй это как проблему стратегии, не трать разбор на построчную правку форматов. Только если пройден — переходи к формальному чеклисту. Выпиши ключевые параметры из ТЗ Артёма. Проверь все форматы по чеклисту. Вынеси вердикт по каждому формату и ОБЩИЙ ВЕРДИКТ.
+
+ПЕРВОЙ строкой ответа укажи «РЕШЕНИЕ INSTAGRAM: ОДОБРЕН» / «РЕШЕНИЕ INSTAGRAM: ТРЕБУЕТ ДОРАБОТКИ» / «РЕШЕНИЕ INSTAGRAM: ПРОБЛЕМА В СТРАТЕГИИ»."""
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.6)
 
-    accepted = "готов к очеловечиванию" in result_text.lower() or \
-               ("РЕШЕНИЕ INSTAGRAM: ПРИНЯТО" in result_text and "РЕШЕНИЕ INSTAGRAM: ОТКЛОНЕНО" not in result_text)
+    first_line = result_text.strip().split("\n", 1)[0].upper()
+    strategy_rejected = "ПРОБЛЕМА В СТРАТЕГИИ" in first_line
+    accepted = (not strategy_rejected) and (
+        "готов к очеловечиванию" in result_text.lower() or "ОДОБРЕН" in first_line
+    )
 
     if not accepted:
         reflection_text = gemini_call(
@@ -175,4 +182,7 @@ INSTAGRAM-ПАКЕТ КАТИ (итерация {iteration}):
     memory_utils.add_topic(memory, topic, f"IG итерация {iteration}, принято: {accepted}")
     memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Лена (Instagram-редактор)", "topic": topic, "iteration": iteration, "accepted": accepted, "review": result_text}
+    return {
+        "agent": "Лена (Instagram-редактор)", "topic": topic, "iteration": iteration, "accepted": accepted,
+        "review": result_text, "strategy_rejected": strategy_rejected,
+    }

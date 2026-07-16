@@ -232,7 +232,9 @@ def run(topic: str, analyst_output: str, strategy_output: str,
     if match:
         chosen_variant = match.group(1).upper()
 
+    strategy_rejected = bool(re.search(r"РЕКОМЕНДУЕМЫЙ ВАРИАНТ\s*:?\s*НИ\s*ОДИН", result_text, re.IGNORECASE))
+
     return {
         "agent": "Редактор", "topic": topic, "iteration": iteration, "accepted": accepted,
-        "review": result_text, "chosen_variant": chosen_variant,
+        "review": result_text, "chosen_variant": chosen_variant, "strategy_rejected": strategy_rejected,
     }
