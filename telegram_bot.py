@@ -532,12 +532,19 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 r_insta2["texts"], GEMINI_API_KEY, iteration=2
             )
             final_ig = r_insta2["texts"]
-            if r_ig_ed2.get("strategy_rejected") or not _looks_like_real_post(r_insta2["texts"]):
+            if r_ig_ed2.get("strategy_rejected"):
                 await _send(msg, f"{ROLES['Лена']}: Катя не смогла переписать в рамках этого ТЗ:\n\n{r_ig_ed2['review']}")
                 await msg.reply_text(
-                    "Катя вернула вопрос вместо готового текста — ей нужно новое ТЗ от Артёма, а не ещё одна попытка "
-                    "в рамках старого. Нужно твоё решение по теме."
+                    "Кате нужно новое ТЗ от Артёма, а не ещё одна попытка в рамках старого. Нужно твоё решение по теме."
                 )
+                return
+            if not _looks_like_real_post(r_insta2["texts"]):
+                snippet = r_insta2["texts"].strip()[:400]
+                await msg.reply_text(
+                    f"Что-то пошло не так у Кати на второй попытке — вот что реально вернулось "
+                    f"(похоже не на пост, а на служебный ответ):\n\n{snippet}"
+                )
+                await msg.reply_text("Останавливаюсь, чтобы не отправить тебе брак. Попробуй запустить тему заново.")
                 return
             await msg.reply_text(
                 f"{ROLES['Лена']}: Теперь норм. Принято." if r_ig_ed2["accepted"]
@@ -547,11 +554,13 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await msg.reply_text(f"{ROLES['Лена']}: Всё отлично, без правок.")
 
         if not _looks_like_real_post(final_ig) or not _looks_like_real_post(final_tg):
+            bad_label = "Instagram" if not _looks_like_real_post(final_ig) else "Telegram"
+            bad_text = final_ig if not _looks_like_real_post(final_ig) else final_tg
             await msg.reply_text(
-                "Что-то пошло не так: один из финальных текстов выглядит как внутренняя переписка "
-                "команды, а не готовый пост. Останавливаюсь, чтобы не отправить тебе брак — попробуй "
-                "запустить тему заново."
+                f"Что-то пошло не так: финальный текст для {bad_label} выглядит как внутренняя переписка "
+                f"команды, а не готовый пост. Вот что реально получилось:\n\n{bad_text.strip()[:400]}"
             )
+            await msg.reply_text("Останавливаюсь, чтобы не отправить тебе брак. Попробуй запустить тему заново.")
             return
 
         await msg.reply_text("Даша Козлова — убираю AI-паттерны, добавляю живость...")

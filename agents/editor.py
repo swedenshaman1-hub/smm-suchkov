@@ -203,13 +203,13 @@ def run(topic: str, analyst_output: str, strategy_output: str,
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.6,
                                disable_thinking=True)
 
-    verdict_line = ""
-    for line in result_text.lower().split("\n"):
-        if "общий вердикт" in line:
-            verdict_line = line
-            break
-    accepted = "требуют доработки" not in verdict_line and "отклонены" not in verdict_line and (
-        "готовы к очеловечиванию" in verdict_line or "один вариант готов" in verdict_line
+    # Модель не всегда пишет вердикт на той же строке, что заголовок "ОБЩИЙ ВЕРДИКТ" —
+    # часто заголовок и текст вердикта разделены пустой строкой. Старая построчная проверка
+    # в этом случае брала пустую строку-заголовок и считала это отклонением по умолчанию.
+    verdict_match = re.search(r"общий вердикт[:\s]*\n*(.{0,200})", result_text, re.IGNORECASE | re.DOTALL)
+    verdict_text = verdict_match.group(1).lower() if verdict_match else ""
+    accepted = "требуют доработки" not in verdict_text and "отклонены" not in verdict_text and (
+        "готовы к очеловечиванию" in verdict_text or "один вариант готов" in verdict_text
     )
 
     if not accepted:
