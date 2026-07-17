@@ -395,8 +395,18 @@ def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> di
     tg_humanized = _humanize_one("Telegram", telegram_text, topic, system, api_key)
 
     # Защита от бага: если instagram_text содержит внутреннюю переписку агентов
-    # (Лена обрезала фидбек, Катя не получила нормальный текст) — пропускаем очеловечивание
-    ig_is_post = instagram_text and len(instagram_text) > 100 and not instagram_text.strip().startswith(("Привет,", "Спасибо", "Артём", "Лена", "Катя", "Игорь", "Даша", "Маша"))
+    # (Лена обрезала фидбек, Катя не получила нормальный текст) — пропускаем очеловечивание.
+    # Ищем реальные фразы отказа, а не просто приветствие в начале — иногда полноценный
+    # пакет всё равно предваряется коротким «Привет, Артём», и это не должно считаться отказом.
+    _refusal_markers = (
+        "требуется полностью новое тз", "не могу переписать", "не могу написать",
+        "не могу продолжить работу", "додумываю самостоятельно", "нужно новое тз",
+        "работаю строго в рамках стратегии", "не могу самостоятельно выбрать",
+    )
+    ig_is_post = bool(
+        instagram_text and len(instagram_text) > 100
+        and not any(m in instagram_text.lower() for m in _refusal_markers)
+    )
     ig_humanized = _humanize_one("Instagram", instagram_text, topic, system, api_key) if ig_is_post else instagram_text
 
     reflection_text = gemini_call(
