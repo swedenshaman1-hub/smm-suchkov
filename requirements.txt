@@ -4,3 +4,4 @@ python-dotenv>=1.0.0
 supabase>=2.0.0
 python-telegram-bot[job-queue]>=20.0
 requests>=2.31.0
+notebooklm-mcp-2026>=0.2.1
