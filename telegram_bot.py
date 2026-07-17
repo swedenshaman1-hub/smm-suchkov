@@ -384,6 +384,14 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         _active_pipelines.discard(chat_id)
 
 
+class _StopPipeline(Exception):
+    """Сигнал остановки пайплайна изнутри вложенной _revise_strategy — там обычный
+    `return` останавливает только саму вложенную функцию, а не весь _run_post_inner.
+    Сообщение пользователю уже отправлено до raise, здесь просто прекращаем работу
+    без лишнего "Ошибка: ..." от общего except Exception ниже."""
+    pass
+
+
 async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
     # Маршрутизация правок: тональная правка («теплее», «живее», «проще», «ближе», «меньше
     # пафоса») идёт сразу к Даше и на быструю проверку редактора — минуя Нину, Артёма, Машу
@@ -487,6 +495,19 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
             await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
 
+            await msg.reply_text(f"{ROLES['Олег']} — ранняя проверка стратегии на повтор архитектуры, до того как Маша и Катя начнут писать...")
+            r_early_marketer = await _run_blocking(
+                marketer.run_early, topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY
+            )
+            if r_early_marketer.get("critical_repeat"):
+                await _send(msg, f"{ROLES['Олег']} (ранняя проверка):\n\n{r_early_marketer['marketing']}")
+                await msg.reply_text(
+                    "Олег на раннем этапе нашёл критический повтор архитектуры/крючка/CTA относительно "
+                    "уже проверенных материалов — останавливаюсь до того, как Маша и Катя начнут писать. "
+                    "Нужно твоё решение: принять повтор осознанно или запросить у Артёма новую стратегию."
+                )
+                return
+
         if feedback:
             await msg.reply_text(
                 f"Маша Лебедева — учитываю правки, переписываю Telegram...\n"
@@ -536,6 +557,19 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
             strategy_output = r_strategist2["strategy"]
             strategy_revised = True
+
+            r_early_marketer2 = await _run_blocking(
+                marketer.run_early, topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY
+            )
+            if r_early_marketer2.get("critical_repeat"):
+                await _send(msg, f"{ROLES['Олег']} (ранняя проверка новой стратегии):\n\n{r_early_marketer2['marketing']}")
+                await msg.reply_text(
+                    "Даже пересмотренная стратегия критически повторяет архитектуру/крючок/CTA уже "
+                    "проверенного материала — останавливаюсь до того, как Маша и Катя начнут писать заново. "
+                    "Нужно твоё решение по теме."
+                )
+                raise _StopPipeline()
+
             await msg.reply_text(f"{ROLES['Маша']} — пишу заново по новой стратегии...\n{ROLES['Катя']} — тоже пересобираю пакет...")
             loop = asyncio.get_running_loop()
             new_copy, new_insta = await asyncio.gather(
@@ -708,6 +742,29 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             f"{label}:\n{content}" for label, content in ig_other_sections.items()
         )
 
+        # Шлюз 6 — повторная смысловая проверка ПОСЛЕ очеловечивания. Даша могла случайно
+        # вернуть категоричность, новую метафору или перенос вины, работая над живостью —
+        # редакторы уже одобрили смысл ДО очеловечивания, но не после. Без этого шага
+        # ошибочная мысль может выйти в публикацию более убедительной и эмоциональной,
+        # чем была на входе к Даше.
+        await msg.reply_text(f"{ROLES['Игорь']} и {ROLES['Лена']} — повторная смысловая проверка после очеловечивания Даши...")
+        r_recheck_tg = await _run_blocking(
+            editor.quick_check, topic, strategy_output, r_human["telegram_humanized"], GEMINI_API_KEY
+        )
+        r_recheck_ig = await _run_blocking(
+            instagram_editor.quick_check, topic, strategy_output, ig_post_content, GEMINI_API_KEY
+        )
+        if not r_recheck_tg["accepted"] or not r_recheck_ig["accepted"]:
+            if not r_recheck_tg["accepted"]:
+                await _send(msg, f"{ROLES['Игорь']} (после очеловечивания):\n\n{r_recheck_tg['review']}")
+            if not r_recheck_ig["accepted"]:
+                await _send(msg, f"{ROLES['Лена']} (после очеловечивания):\n\n{r_recheck_ig['review']}")
+            await msg.reply_text(
+                "Очеловечивание Даши вернуло категоричность, новую метафору или перенос вины, которых "
+                "не было в одобренном варианте — останавливаюсь перед публикацией. Нужно твоё решение."
+            )
+            return
+
         await msg.reply_text("Олег Савин — оцениваю виральный и коммерческий потенциал готового текста...")
         r_marketer = await _run_blocking(
             marketer.run, topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY,
@@ -773,6 +830,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    except _StopPipeline:
+        pass
     except Exception as e:
         logger.exception("Ошибка в _run_post")
         if "503" in str(e) or "UNAVAILABLE" in str(e) or "overloaded" in str(e).lower():
