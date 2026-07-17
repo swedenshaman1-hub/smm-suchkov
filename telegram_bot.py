@@ -416,6 +416,11 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             if found_ig:
                 new_ig = await _run_blocking(humanizer.force_remove_cliches, new_ig, found_ig, topic, GEMINI_API_KEY)
 
+            if humanizer.has_forbidden_punctuation(new_tg):
+                new_tg = await _run_blocking(humanizer.fix_punctuation_style, new_tg, topic, GEMINI_API_KEY)
+            if humanizer.has_forbidden_punctuation(new_ig):
+                new_ig = await _run_blocking(humanizer.fix_punctuation_style, new_ig, topic, GEMINI_API_KEY)
+
             if not _looks_like_real_post(new_tg) or not _looks_like_real_post(new_ig):
                 await msg.reply_text(
                     "Что-то пошло не так при тональной переработке — результат не похож на готовый "
@@ -693,6 +698,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 r_human[key] = await _run_blocking(
                     humanizer.force_remove_cliches, r_human[key], found, topic, GEMINI_API_KEY
                 )
+            if humanizer.has_forbidden_punctuation(r_human[key]):
+                r_human[key] = await _run_blocking(
+                    humanizer.fix_punctuation_style, r_human[key], topic, GEMINI_API_KEY
+                )
 
         ig_post_content = r_human["instagram_humanized"]
         full_ig_text = ig_post_content + "\n\n" + "\n\n".join(
@@ -705,6 +714,14 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             final_content=f"TELEGRAM:\n{r_human['telegram_humanized']}\n\nINSTAGRAM:\n{full_ig_text}"
         )
         await _send(msg, f"{ROLES['Олег']}:\n\n{r_marketer['marketing']}")
+
+        if r_marketer.get("critical_repeat"):
+            await msg.reply_text(
+                "Олег обнаружил точное совпадение схемы сюжета/образа/CTA с уже проверенным "
+                "материалом (см. его разбор выше) — публикация приостановлена. Нужно твоё решение: "
+                "либо принять повтор осознанно, либо запросить у Артёма другую стратегию."
+            )
+            return
 
         await msg.reply_text("Света Громова — финальная проверка и подготовка к публикации...")
         r_pub = await _run_blocking(
