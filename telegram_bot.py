@@ -331,9 +331,12 @@ async def _run_blocking(fn, *args, **kwargs):
     на случай, если сетевой вызов внутри повиснет без собственной ошибки."""
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, lambda: fn(*args, **kwargs)), timeout=180)
+        # 240с, не 180 — чек-листы редакторов (Игорь/Лена/Олег) выросли: причинная цепочка,
+        # тест переноса вины, обязательный changelog с полным текстом на итерации 2+ — это
+        # больше выходных токенов на один вызов, чем раньше, а не только сетевые флуктуации.
+        return await asyncio.wait_for(loop.run_in_executor(None, lambda: fn(*args, **kwargs)), timeout=240)
     except asyncio.TimeoutError:
-        raise TimeoutError("Запрос к Gemini не ответил за 3 минуты — вероятно, временный сбой сети. Попробуй ещё раз.")
+        raise TimeoutError("Запрос к Gemini не ответил за 4 минуты — вероятно, временный сбой сети. Попробуй ещё раз.")
 
 
 async def _transcribe_voice(file_path: str) -> str:
@@ -588,17 +591,27 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_copy["texts"], GEMINI_API_KEY
         )
 
+        went_through_strategy_revision = False
         if r_editor.get("strategy_rejected"):
+            went_through_strategy_revision = True
             r_copy, r_insta = await _revise_strategy(ROLES['Игорь'], r_editor["review"])
             r_editor = await _run_blocking(
                 editor.run, topic, r_analyst["analysis"], strategy_output,
                 r_copy["texts"], GEMINI_API_KEY, iteration=2
             )
+            if r_editor.get("strategy_rejected"):
+                await _send(msg, f"{ROLES['Игорь']}: даже новая стратегия не проходит:\n\n{r_editor['review']}")
+                await msg.reply_text(
+                    "Команда не смогла найти рабочую стратегию для Telegram-текста за две попытки. "
+                    "Нужно твоё решение по теме."
+                )
+                return
             await msg.reply_text(
                 f"{ROLES['Игорь']}: с новой стратегией — принято." if r_editor["accepted"]
-                else f"{ROLES['Игорь']}: не идеально, но принимаю с новой стратегией."
+                else f"{ROLES['Игорь']}: с новой стратегией текст ещё требует правки — прошу Машу доработать..."
             )
-        elif not r_editor["accepted"]:
+
+        if not r_editor["accepted"]:
             await _send(msg, f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{r_editor['review']}\n\nПеределай.")
             await msg.reply_text(f"{ROLES['Маша']}: Поняла, исправляю...")
             r_copy2 = await _run_blocking(
@@ -611,11 +624,16 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
             r_copy = r_copy2
             r_editor = r_editor2
-            await msg.reply_text(
-                f"{ROLES['Игорь']}: Теперь хорошо. Принято." if r_editor2["accepted"]
-                else f"{ROLES['Игорь']}: Не идеально, но принимаю."
-            )
-        else:
+            if r_editor2["accepted"]:
+                await msg.reply_text(f"{ROLES['Игорь']}: Теперь хорошо. Причина возврата устранена и подтверждена.")
+            else:
+                await _send(msg, f"{ROLES['Игорь']}: после повторной правки причина возврата по существу не устранена:\n\n{r_editor2['review']}")
+                await msg.reply_text(
+                    "Telegram-текст второй раз подряд не проходит проверку редактора. Нужно твоё решение — "
+                    "уточнить тему или задать более конкретный тезис."
+                )
+                return
+        elif not went_through_strategy_revision:
             await msg.reply_text(f"{ROLES['Игорь']}: С первого раза хорошо. Принято.")
 
         final_tg = _extract_variant(r_copy["texts"], r_editor.get("chosen_variant"))
@@ -636,11 +654,31 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 editor.run, topic, r_analyst["analysis"], strategy_output,
                 r_copy["texts"], GEMINI_API_KEY, iteration=3
             )
+            if not r_editor["accepted"]:
+                await _send(msg, f"{ROLES['Игорь']}: перепроверил Telegram под новую стратегию — есть замечания:\n\n{r_editor['review']}")
+                await msg.reply_text(f"{ROLES['Маша']}: поняла, исправляю ещё раз...")
+                r_copy2 = await _run_blocking(
+                    copywriter.run, topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY,
+                    editor_feedback=r_editor["review"], iteration=3
+                )
+                r_editor2 = await _run_blocking(
+                    editor.run, topic, r_analyst["analysis"], strategy_output,
+                    r_copy2["texts"], GEMINI_API_KEY, iteration=3
+                )
+                r_copy = r_copy2
+                r_editor = r_editor2
+                if r_editor2["accepted"]:
+                    await msg.reply_text(f"{ROLES['Игорь']}: теперь хорошо. Причина возврата устранена и подтверждена.")
+                else:
+                    await _send(msg, f"{ROLES['Игорь']}: причина возврата по существу не устранена:\n\n{r_editor2['review']}")
+                    await msg.reply_text(
+                        "Telegram-текст не проходит проверку редактора после пересмотра стратегии. Нужно твоё решение."
+                    )
+                    return
+            else:
+                await msg.reply_text(f"{ROLES['Игорь']}: перепроверил Telegram под новую стратегию — принято.")
+
             final_tg = _extract_variant(r_copy["texts"], r_editor.get("chosen_variant"))
-            await msg.reply_text(
-                f"{ROLES['Игорь']}: перепроверил Telegram под новую стратегию — принято." if r_editor["accepted"]
-                else f"{ROLES['Игорь']}: перепроверил Telegram под новую стратегию — не идеально, но принимаю."
-            )
             r_ig_ed = await _run_blocking(
                 instagram_editor.run, topic, r_analyst["analysis"], strategy_output,
                 r_insta["texts"], GEMINI_API_KEY, iteration=2
@@ -685,10 +723,14 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 )
                 await msg.reply_text("Останавливаюсь, чтобы не отправить тебе брак. Попробуй запустить тему заново.")
                 return
-            await msg.reply_text(
-                f"{ROLES['Лена']}: Теперь норм. Принято." if r_ig_ed2["accepted"]
-                else f"{ROLES['Лена']}: Принимаю как есть."
-            )
+            if r_ig_ed2["accepted"]:
+                await msg.reply_text(f"{ROLES['Лена']}: Теперь норм. Причина возврата устранена и подтверждена.")
+            else:
+                await _send(msg, f"{ROLES['Лена']}: после повторной правки причина возврата по существу не устранена:\n\n{r_ig_ed2['review']}")
+                await msg.reply_text(
+                    "Instagram-пакет второй раз подряд не проходит проверку редактора. Нужно твоё решение."
+                )
+                return
         else:
             await msg.reply_text(f"{ROLES['Лена']}: Всё отлично, без правок.")
 
