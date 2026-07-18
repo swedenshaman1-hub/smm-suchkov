@@ -591,25 +591,35 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_copy["texts"], GEMINI_API_KEY
         )
 
+        # До двух автоматических пересмотров стратегии, не одного — новые более строгие
+        # гейты (причинная цепочка, 2 небутафорских контрпримера, тест переноса вины) сами
+        # по себе поднимают шанс, что первый пересмотр всё ещё формален. Раньше при провале
+        # второй попытки (первая стратегия + одна ревизия) бот сразу останавливался и просил
+        # решение у Дмитрия — теперь даём ещё один шанс до эскалации.
+        MAX_STRATEGY_REVISIONS = 2
         went_through_strategy_revision = False
-        if r_editor.get("strategy_rejected"):
+        strategy_revision_attempts = 0
+        while r_editor.get("strategy_rejected") and strategy_revision_attempts < MAX_STRATEGY_REVISIONS:
+            strategy_revision_attempts += 1
             went_through_strategy_revision = True
             r_copy, r_insta = await _revise_strategy(ROLES['Игорь'], r_editor["review"])
             r_editor = await _run_blocking(
                 editor.run, topic, r_analyst["analysis"], strategy_output,
-                r_copy["texts"], GEMINI_API_KEY, iteration=2
+                r_copy["texts"], GEMINI_API_KEY, iteration=1 + strategy_revision_attempts
             )
-            if r_editor.get("strategy_rejected"):
-                await _send(msg, f"{ROLES['Игорь']}: даже новая стратегия не проходит:\n\n{r_editor['review']}")
+            if not r_editor.get("strategy_rejected"):
                 await msg.reply_text(
-                    "Команда не смогла найти рабочую стратегию для Telegram-текста за две попытки. "
-                    "Нужно твоё решение по теме."
+                    f"{ROLES['Игорь']}: с новой стратегией — принято." if r_editor["accepted"]
+                    else f"{ROLES['Игорь']}: с новой стратегией текст ещё требует правки — прошу Машу доработать..."
                 )
-                return
+
+        if r_editor.get("strategy_rejected"):
+            await _send(msg, f"{ROLES['Игорь']}: даже после {MAX_STRATEGY_REVISIONS} пересмотров стратегии не проходит:\n\n{r_editor['review']}")
             await msg.reply_text(
-                f"{ROLES['Игорь']}: с новой стратегией — принято." if r_editor["accepted"]
-                else f"{ROLES['Игорь']}: с новой стратегией текст ещё требует правки — прошу Машу доработать..."
+                f"Команда не смогла найти рабочую стратегию для Telegram-текста за {MAX_STRATEGY_REVISIONS + 1} попытки. "
+                "Нужно твоё решение по теме."
             )
+            return
 
         if not r_editor["accepted"]:
             await _send(msg, f"{ROLES['Игорь']}: Маша, не пойдёт. Вот что не так:\n\n{r_editor['review']}\n\nПеределай.")
