@@ -169,7 +169,10 @@ async def _send(msg: Message, text: str):
     total = len(chunks)
     for idx, chunk in enumerate(chunks, start=1):
         if not chunk.strip():
-            await msg.reply_text(chunk)
+            # Пустой/пробельный чанк возникает, когда граница в 4000 символов попадает
+            # ровно на пробелы/переносы строк — Telegram отклоняет reply_text("") с
+            # "Text must be non-empty" (падало на проде на длинных ревью редакторов,
+            # которые выросли из-за обязательного changelog + полного текста).
             continue
         if is_header_line and idx > 1:
             chunk = f"{header} (часть {idx}/{total}):\n\n{chunk}"
