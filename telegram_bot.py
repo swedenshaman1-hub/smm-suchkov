@@ -546,19 +546,28 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
         strategy_output = r_strategist["strategy"]
         strategy_revised = False
+        # Значения для реестра "используемое" пишутся в память ТОЛЬКО при подтверждённой
+        # публикации (см. register_published в конце пайплайна) — здесь просто держим
+        # актуальные на данный момент значения, обновляя при каждом реальном пересмотре.
+        strategy_image = r_strategist.get("central_image", "")
+        strategy_scheme = r_strategist.get("scheme", "")
+        strategy_angle = r_strategist.get("angle", "")
 
         async def _revise_strategy(feedback_source: str, feedback_text: str):
             """Игорь или Лена отменили саму стратегию, а не текст — раньше пайплайн
             не умел на это реагировать и просто просил Машу/Катю переписать тем же
             (уже забракованным) ТЗ. Здесь Артём реально пересматривает угол, и обе
             платформы пересобираются заново под новый ТЗ, чтобы не разойтись."""
-            nonlocal strategy_output, strategy_revised
+            nonlocal strategy_output, strategy_revised, strategy_image, strategy_scheme, strategy_angle
             await _send(msg, f"{feedback_source}: проблема не в тексте, а в самой стратегии:\n\n{feedback_text}")
             await msg.reply_text(f"{ROLES['Артём']}: пересматриваю угол по этому замечанию...")
             r_strategist2 = await _run_blocking(
                 strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY, feedback=feedback_text
             )
             strategy_output = r_strategist2["strategy"]
+            strategy_image = r_strategist2.get("central_image", "")
+            strategy_scheme = r_strategist2.get("scheme", "")
+            strategy_angle = r_strategist2.get("angle", "")
             strategy_revised = True
 
             r_early_marketer2 = await _run_blocking(
@@ -842,6 +851,18 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         )
 
         remaining_sections = ig_other_sections
+
+        # Единственное место во всём пайплайне, где угол/образ/схема/форматы/CTA реально
+        # попадают в общий реестр "used_X" команды — материал только что прошёл все гейты
+        # и уходит в публикацию. Черновики и отклонённые попытки этот реестр не трогают.
+        memory_utils.register_published(
+            topic,
+            angle=r_analyst.get("chosen_aspect", "") or strategy_angle,
+            central_image=strategy_image,
+            scheme=strategy_scheme,
+            formats=r_copy.get("formats", []),
+            ctas=r_copy.get("ctas", []),
+        )
 
         await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nКоманда сдала работу\n━━━━━━━━━━━━━━━━━━━")
         await _send(msg, f"TELEGRAM-ТЕКСТ (от {ROLES['Даша']}):\n\n{r_human['telegram_humanized']}")
@@ -1489,6 +1510,27 @@ async def cmd_promptcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _run_promptcheck(update.message)
 
 
+async def cmd_clearrepeats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Разовая ремонтная команда: раньше углы/образы/схемы/форматы/CTA писались в общий
+    реестр 'уже использовано' на каждом черновике агентов, включая отклонённые попытки —
+    из-за этого отклонённые темы навсегда блокировали сами себя как "критичный повтор".
+    Это исправлено (реестр теперь пишется только при подтверждённой публикации), но
+    накопленный до фикса ложный реестр нужно один раз очистить вручную."""
+    cleared = memory_utils.clear_used_registries()
+    lines = ["Очистил реестр «уже использовано» команды:"]
+    labels = {
+        "used_images": "образы", "used_formats": "форматы", "used_ctas": "CTA",
+        "used_angles": "углы/аспекты", "used_schemes": "схемы сюжета",
+    }
+    for key, label in labels.items():
+        lines.append(f"• {label}: удалено {cleared.get(key, 0)}")
+    lines.append(
+        "\nЭто не удаляет темы или тексты — только снимает ложные пометки \"уже было\", "
+        "накопленные багом (черновики и отклонённые попытки писались в реестр как опубликованные)."
+    )
+    await update.message.reply_text("\n".join(lines))
+
+
 async def job_weekly_promptcheck(context: ContextTypes.DEFAULT_TYPE):
     owner_chat_id = os.getenv("OWNER_CHAT_ID", "").strip()
     if not owner_chat_id:
@@ -1625,6 +1667,7 @@ def main():
     app.add_handler(CommandHandler("channelstats", cmd_channelstats))
     app.add_handler(CommandHandler("syncinsights", cmd_syncinsights))
     app.add_handler(CommandHandler("promptcheck", cmd_promptcheck))
+    app.add_handler(CommandHandler("clearrepeats", cmd_clearrepeats))
     app.add_handler(CommandHandler("igstats", cmd_igstats))
     app.add_handler(CommandHandler("igsync", cmd_igsync))
     app.add_handler(CallbackQueryHandler(handle_tts, pattern="^tts$"))

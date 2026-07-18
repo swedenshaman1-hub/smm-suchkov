@@ -285,10 +285,19 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
     scheme = scheme_match.group(1).strip(" *").strip()[:150] if scheme_match else ""
 
     memory_utils.add_topic(memory, topic, f"Угол: {angle} | Крючок: {hook}")
-    if central_image and not central_image.lower().startswith(("нет", "не нужна", "не нужен")):
-        memory_utils.add_used_image(central_image, topic)
-    if scheme:
-        memory_utils.add_used_scheme(scheme, topic)
     memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Стратег", "topic": topic, "strategy": result_text}
+    # ВАЖНО: не пишем сюда в общий реестр "used_images"/"used_schemes" команды —
+    # это черновик, который ещё может быть отклонён редакторами или самим Дмитрием.
+    # Если писать здесь, отклонённая на этом самом прогоне стратегия навсегда
+    # блокирует команду от повторной честной попытки той же темы (ловили этот баг
+    # на живом проде: одна и та же тема блокировала сама себя как "критичный повтор"
+    # против собственного не опубликованного черновика). Запись в реестр — только
+    # при подтверждённой публикации, см. memory_utils.register_published() в конце
+    # пайплайна telegram_bot.py.
+    central_image_clean = central_image if central_image and not central_image.lower().startswith(("нет", "не нужна", "не нужен")) else ""
+
+    return {
+        "agent": "Стратег", "topic": topic, "strategy": result_text,
+        "central_image": central_image_clean, "scheme": scheme, "angle": angle,
+    }

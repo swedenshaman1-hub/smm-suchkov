@@ -198,8 +198,10 @@ def run(topic: str, api_key: str, feedback: str = None) -> dict:
     aspect_match = re.search(r"выбираю аспект:?\s*(.+)", result_text, re.IGNORECASE)
     chosen_aspect = aspect_match.group(1).strip()[:150] if aspect_match else ""
     memory_utils.add_topic(memory, topic, f"Аспект: {chosen_aspect}" if chosen_aspect else result_text[:300])
-    if chosen_aspect:
-        memory_utils.add_used_angle(chosen_aspect, topic)
     memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Нина (Аналитик ЦА)", "topic": topic, "analysis": result_text}
+    # Не пишем в общий реестр "used_angles" здесь — это черновик, который ещё может
+    # быть отклонён редакторами. Реестр обновляется только при подтверждённой публикации,
+    # см. memory_utils.register_published() в конце пайплайна telegram_bot.py — иначе
+    # отклонённая попытка навсегда блокирует команду от честной повторной попытки той же темы.
+    return {"agent": "Нина (Аналитик ЦА)", "topic": topic, "analysis": result_text, "chosen_aspect": chosen_aspect}

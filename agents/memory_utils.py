@@ -244,6 +244,44 @@ def get_recent_schemes(n: int = 8) -> list:
     return _get_team_elements("used_schemes", n)
 
 
+def clear_used_registries() -> dict:
+    """Полностью очищает общий реестр 'used_X' команды (образы/форматы/CTA/углы/схемы).
+    Разовая операция для восстановления после бага, когда черновики писались в реестр
+    как опубликованные (см. register_published) и накопили ложные "повторы" против
+    материалов, которые на самом деле никогда не публиковались."""
+    memory = load(TEAM_AGENT_ID)
+    cleared = {}
+    for key in ("used_images", "used_formats", "used_ctas", "used_angles", "used_schemes"):
+        cleared[key] = len(memory.get(key, []))
+        memory[key] = []
+    save(TEAM_AGENT_ID, memory)
+    return cleared
+
+
+def register_published(topic: str, angle: str = "", central_image: str = "", scheme: str = "",
+                        formats: list = None, ctas: list = None):
+    """Единая точка записи в общий реестр 'used_X' команды — вызывать ТОЛЬКО когда
+    материал реально прошёл всю цепочку и уходит в публикацию, не на каждом черновике.
+
+    Раньше add_used_angle/add_used_image/add_used_scheme/add_used_format/add_used_cta
+    вызывались прямо внутри run() у Нины/Артёма/Маши — то есть при КАЖДОЙ попытке,
+    включая те, что редакторы потом отклоняли. На практике это значило, что отклонённый
+    черновик темы навсегда помечал её угол/образ/схему как "уже использовано" — и при
+    честной повторной попытке той же (исправленной) темы Олег ловил "критичный повтор"
+    против собственного никогда не опубликованного черновика. Тема буквально блокировала
+    сама себя. Теперь запись происходит один раз, здесь, после подтверждённой публикации."""
+    if angle:
+        add_used_angle(angle, topic)
+    if central_image:
+        add_used_image(central_image, topic)
+    if scheme:
+        add_used_scheme(scheme, topic)
+    for fmt in (formats or []):
+        add_used_format(fmt, topic)
+    for cta in (ctas or []):
+        add_used_cta(cta, topic)
+
+
 def add_feedback(memory: dict, from_agent: str, feedback: str, topic: str):
     memory["team_feedback"].append({
         "from": from_agent,

@@ -217,15 +217,22 @@ def run(topic: str, analyst_output: str, strategy_output: str,
             if line.strip() and "•" in line:
                 memory_utils.add_insight(memory, line.strip().lstrip("•").strip(), topic, "copywriting")
 
-        for fmt_match in re.finditer(r"ВАРИАНТ [АБ]\s*[—-]\s*(.+)", result_text):
-            memory_utils.add_used_format(fmt_match.group(1).strip(" *")[:40], topic)
-
-        for cta_match in re.finditer(r"CTA-СЛОВО [АБ]:\**\s*(.+)", result_text):
-            cta_text = cta_match.group(1).strip(" *[]")[:60]
-            if cta_text and not cta_text.lower().startswith(("без cta", "нет")):
-                memory_utils.add_used_cta(cta_text, topic)
-
     memory_utils.add_topic(memory, topic, f"Итерация {iteration}: {result_text[:200]}")
     memory_utils.save(AGENT_ID, memory)
 
-    return {"agent": "Копирайтер", "topic": topic, "iteration": iteration, "texts": result_text}
+    # Форматы/CTA больше не пишутся в общий реестр здесь — это черновик, ещё не прошедший
+    # Игоря. Извлекаем значения и отдаём вызывающей стороне, чтобы записать в реестр
+    # только при подтверждённой публикации (memory_utils.register_published() в конце
+    # пайплайна telegram_bot.py) — иначе отклонённый вариант навсегда блокирует
+    # команду от честной повторной попытки той же архитектуры/CTA.
+    formats = [m.group(1).strip(" *")[:40] for m in re.finditer(r"ВАРИАНТ [АБ]\s*[—-]\s*(.+)", result_text)]
+    ctas = []
+    for cta_match in re.finditer(r"CTA-СЛОВО [АБ]:\**\s*(.+)", result_text):
+        cta_text = cta_match.group(1).strip(" *[]")[:60]
+        if cta_text and not cta_text.lower().startswith(("без cta", "нет")):
+            ctas.append(cta_text)
+
+    return {
+        "agent": "Копирайтер", "topic": topic, "iteration": iteration, "texts": result_text,
+        "formats": formats, "ctas": ctas,
+    }
