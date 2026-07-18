@@ -182,9 +182,14 @@ def add_used_image(image: str, topic: str):
     save(TEAM_AGENT_ID, memory)
 
 
-def get_recent_images(n: int = 10) -> list:
+def _same_topic(a: str, b: str) -> bool:
+    return bool(a) and bool(b) and a.strip().lower() == b.strip().lower()
+
+
+def get_recent_images(n: int = 10, exclude_topic: str = None) -> list:
     memory = load(TEAM_AGENT_ID)
-    return [i["image"] for i in memory.get("used_images", [])[-n:]]
+    entries = [i for i in memory.get("used_images", []) if not _same_topic(i.get("topic", ""), exclude_topic)]
+    return [i["image"] for i in entries[-n:]]
 
 
 def _add_team_element(key: str, value: str, topic: str, keep_last: int = 15):
@@ -197,9 +202,10 @@ def _add_team_element(key: str, value: str, topic: str, keep_last: int = 15):
     save(TEAM_AGENT_ID, memory)
 
 
-def _get_team_elements(key: str, n: int) -> list:
+def _get_team_elements(key: str, n: int, exclude_topic: str = None) -> list:
     memory = load(TEAM_AGENT_ID)
-    return [i["value"] for i in memory.get(key, [])[-n:]]
+    entries = [i for i in memory.get(key, []) if not _same_topic(i.get("topic", ""), exclude_topic)]
+    return [i["value"] for i in entries[-n:]]
 
 
 def add_used_format(fmt: str, topic: str):
@@ -209,16 +215,16 @@ def add_used_format(fmt: str, topic: str):
     _add_team_element("used_formats", fmt, topic)
 
 
-def get_recent_formats(n: int = 6) -> list:
-    return _get_team_elements("used_formats", n)
+def get_recent_formats(n: int = 6, exclude_topic: str = None) -> list:
+    return _get_team_elements("used_formats", n, exclude_topic)
 
 
 def add_used_cta(cta: str, topic: str):
     _add_team_element("used_ctas", cta, topic)
 
 
-def get_recent_ctas(n: int = 6) -> list:
-    return _get_team_elements("used_ctas", n)
+def get_recent_ctas(n: int = 6, exclude_topic: str = None) -> list:
+    return _get_team_elements("used_ctas", n, exclude_topic)
 
 
 def add_used_angle(angle: str, topic: str):
@@ -229,8 +235,8 @@ def add_used_angle(angle: str, topic: str):
     _add_team_element("used_angles", angle, topic)
 
 
-def get_recent_angles(n: int = 8) -> list:
-    return _get_team_elements("used_angles", n)
+def get_recent_angles(n: int = 8, exclude_topic: str = None) -> list:
+    return _get_team_elements("used_angles", n, exclude_topic)
 
 
 def add_used_scheme(scheme: str, topic: str):
@@ -240,8 +246,8 @@ def add_used_scheme(scheme: str, topic: str):
     _add_team_element("used_schemes", scheme, topic)
 
 
-def get_recent_schemes(n: int = 8) -> list:
-    return _get_team_elements("used_schemes", n)
+def get_recent_schemes(n: int = 8, exclude_topic: str = None) -> list:
+    return _get_team_elements("used_schemes", n, exclude_topic)
 
 
 def clear_used_registries() -> dict:
@@ -313,31 +319,34 @@ def build_context(memory: dict, topic: str) -> str:
     if count > 0:
         lines.append(f"\n\n═══ ТВОЯ ПАМЯТЬ ({count} сессий) ═══")
 
-    recent_images = get_recent_images(n=10)
+    # exclude_topic=topic: сравнение темы с её же собственными более ранними черновиками
+    # (в рамках доработки/повторной попытки) не несёт информации о реальном повторе и
+    # раньше приводило к тому, что тема блокировала сама себя как "критичный повтор".
+    recent_images = get_recent_images(n=10, exclude_topic=topic)
     if recent_images:
         lines.append("\n⛔ ЗАПРЕЩЕНО ПОВТОРЯТЬ — центральные образы, уже использованные в недавних постах команды (не только дословно, но и по типу — «сторож» и «страж» и «охранник» это один и тот же образ):")
         for img in recent_images:
             lines.append(f"✗ {img}")
 
-    recent_formats = get_recent_formats(n=6)
+    recent_formats = get_recent_formats(n=6, exclude_topic=topic)
     if recent_formats:
         lines.append("\n⛔ НЕ ПОВТОРЯЙ АРХИТЕКТУРУ — форматы/скелеты, уже использованные в недавних постах команды (выбери другой тип):")
         for f in recent_formats:
             lines.append(f"✗ {f}")
 
-    recent_ctas = get_recent_ctas(n=6)
+    recent_ctas = get_recent_ctas(n=6, exclude_topic=topic)
     if recent_ctas:
         lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТИ CTA-СЛОВА/ФРАЗЫ — уже использованы в недавних постах команды:")
         for c in recent_ctas:
             lines.append(f"✗ {c}")
 
-    recent_angles = get_recent_angles(n=8)
+    recent_angles = get_recent_angles(n=8, exclude_topic=topic)
     if recent_angles:
         lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТОТ ВЫБОР — грани/аспекты темы, уже раскрытые в недавних материалах команды (выбери другую грань, даже если слова будут другими):")
         for a in recent_angles:
             lines.append(f"✗ {a}")
 
-    recent_schemes = get_recent_schemes(n=8)
+    recent_schemes = get_recent_schemes(n=8, exclude_topic=topic)
     if recent_schemes:
         lines.append("\n⛔ НЕ ПОВТОРЯЙ ЭТУ СХЕМУ СЮЖЕТА — уже использована в недавних материалах команды, даже если слова и образ будут другими:")
         for s in recent_schemes:
@@ -366,7 +375,10 @@ def build_context(memory: dict, topic: str) -> str:
         for fb in feedback:
             lines.append(f"[{fb['from']}]: {fb['feedback']}")
 
-    topic_history = memory["topic_history"][-5:]
+    # Исключаем записи по этой же теме — иначе черновики и отклонённые попытки прошлых
+    # раундов доработки той же темы читаются агентом как "уже было", хотя это те же
+    # незавершённые попытки, а не отдельный опубликованный материал.
+    topic_history = [t for t in memory["topic_history"] if not _same_topic(t.get("topic", ""), topic)][-5:]
     if topic_history:
         lines.append("\nПОСЛЕДНИЕ ТЕМЫ КОМАНДЫ (проверь, не повторяешь ли ту же структуру/образ):")
         for t in topic_history:
