@@ -40,6 +40,7 @@ from agents import (
     instagram_stats, instagram_analyst
 )
 from agents import memory_utils
+from agents import telegram_team
 
 CHANNEL_CHAT_ID = -1001800141714
 
@@ -118,6 +119,7 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
 SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
     "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
+    "last_pipeline_mode",
 ]
 
 # Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
@@ -385,7 +387,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         return
     _active_pipelines.add(chat_id)
     try:
-        await _run_post_inner(msg, topic, user_data, feedback, delivery_filter)
+        await _run_post_inner(msg, topic, user_data, feedback)
     finally:
         _active_pipelines.discard(chat_id)
 
@@ -398,7 +400,129 @@ class _StopPipeline(Exception):
     pass
 
 
-async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
+async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None):
+    """Compact Telegram-only pipeline: research → angles → drafts → edit → voice."""
+    reuse_previous = bool(
+        feedback and user_data.get("last_post_topic") == topic
+        and user_data.get("last_analysis") and user_data.get("last_strategy")
+    )
+    try:
+        await msg.reply_text(
+            f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
+            "Пять ролей, один цикл содержательной доработки. Обычно 1–2 минуты."
+        )
+
+        if reuse_previous:
+            research_note = user_data["last_analysis"]
+            strategy_output = user_data["last_strategy"]
+            await msg.reply_text("Сохраняю ранее выбранную стратегию и меняю только текст по твоей правке.")
+        else:
+            await msg.reply_text("Нина — собираю фактическую опору и живые ситуации...")
+            research_note = await _run_blocking(telegram_team.research, topic, GEMINI_API_KEY)
+
+            await msg.reply_text("Артём — создаю пять разных смысловых углов и выбираю сильнейший...")
+            strategy_output = await _run_blocking(
+                telegram_team.strategize, topic, research_note, GEMINI_API_KEY
+            )
+
+        await msg.reply_text("Маша — пишу три действительно разных варианта...")
+        variants = await _run_blocking(
+            telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
+            feedback=feedback,
+            previous_text=user_data.get("last_final_tg") if feedback else None,
+        )
+
+        await msg.reply_text("Игорь — выбираю лучший вариант и проверяю смысл...")
+        editorial = await _run_blocking(
+            telegram_team.review, topic, strategy_output, variants, GEMINI_API_KEY
+        )
+        selected = telegram_team.extract_variant(variants, editorial["variant"])
+
+        if not editorial["accepted"]:
+            await msg.reply_text("Игорь нашёл существенную правку. Маша дорабатывает выбранный вариант один раз...")
+            revised_variants = await _run_blocking(
+                telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
+                feedback=editorial["review"], previous_text=selected,
+            )
+            editorial = await _run_blocking(
+                telegram_team.review, topic, strategy_output, revised_variants, GEMINI_API_KEY
+            )
+            selected = telegram_team.extract_variant(revised_variants, editorial["variant"])
+            if not editorial["accepted"]:
+                await msg.reply_text(
+                    "После одной доработки редактор всё ещё видит замечания. Не запускаю бесконечный круг — "
+                    "показываю лучший получившийся вариант, чтобы решение оставалось за тобой."
+                )
+
+        await msg.reply_text("Даша — точечно настраиваю текст под голос Дмитрия, не меняя мысль...")
+        polished = await _run_blocking(telegram_team.polish, topic, selected, GEMINI_API_KEY)
+
+        polished_errors = telegram_team.validate_post(polished)
+        selected_errors = telegram_team.validate_post(selected)
+        if polished_errors:
+            logger.warning("Voice pass rejected by deterministic checks: %s", "; ".join(polished_errors))
+            if not selected_errors:
+                polished = selected
+                await msg.reply_text("Стилистическая правка не прошла техническую проверку — оставляю одобренный текст без неё.")
+            else:
+                await msg.reply_text(
+                    "Останавливаюсь: итог не прошёл техническую проверку ("
+                    + "; ".join(polished_errors) + "). Нужна более конкретная тема или тезис."
+                )
+                return
+
+        memory_utils.register_published(
+            topic,
+            angle=strategy_output[:300],
+            formats=["telegram_post"],
+        )
+
+        if feedback:
+            for agent_id in ["analyst", "strategist", "copywriter", "editor", "humanizer"]:
+                mem = memory_utils.load(agent_id)
+                memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
+                memory_utils.save(agent_id, mem)
+
+        user_data["last_post_topic"] = topic
+        user_data["last_analysis"] = research_note
+        user_data["last_strategy"] = strategy_output
+        user_data["last_final_tg"] = polished
+        user_data["last_final_ig_post"] = ""
+        user_data["last_pipeline_mode"] = "post"
+        user_data["pending_ig_sections"] = {}
+        user_data["waiting_feedback"] = False
+        _persist_session(msg.chat_id, user_data)
+
+        await msg.reply_text("━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━")
+        await _send(msg, polished)
+        await msg.reply_text(
+            "Если нужна правка — нажми кнопку и напиши, что изменить. Смысловой угол сохранится.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Доработать пост", callback_data="revise")
+            ]]),
+        )
+    except Exception as e:
+        logger.exception("Ошибка в компактном Telegram pipeline")
+        if "503" in str(e) or "UNAVAILABLE" in str(e) or "overloaded" in str(e).lower():
+            await msg.reply_text("Gemini временно перегружен. Попробуй повторить тему через пару минут.")
+        else:
+            await msg.reply_text(f"Ошибка: {e}")
+
+
+async def _run_pack(msg: Message, topic: str, user_data: dict, feedback: str = None):
+    """Legacy full Telegram + Instagram content pack."""
+    chat_id = msg.chat_id
+    if chat_id in _active_pipelines:
+        await msg.reply_text("Команда уже работает над предыдущим материалом. Дождись завершения.")
+        return
+    _active_pipelines.add(chat_id)
+    try:
+        await _run_pack_inner(msg, topic, user_data, feedback, "all")
+    finally:
+        _active_pipelines.discard(chat_id)
+
+
+async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
     # Маршрутизация правок: тональная правка («теплее», «живее», «проще», «ближе», «меньше
     # пафоса») идёт сразу к Даше и на быструю проверку редактора — минуя Нину, Артёма, Машу
     # и Катю целиком. Раньше даже такая правка гоняла всю команду заново.
@@ -884,6 +1008,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_strategy"] = strategy_output
         user_data["last_final_tg"] = r_human["telegram_humanized"]
         user_data["last_final_ig_post"] = ig_post_content
+        user_data["last_pipeline_mode"] = "pack"
         user_data["waiting_feedback"] = False
         _persist_session(msg.chat_id, user_data)
 
@@ -946,6 +1071,30 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("GEMINI_API_KEY не задан в .env")
         return
     await _run_post(update.message, topic, context.user_data)
+
+
+async def cmd_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    topic = " ".join(context.args).strip() if context.args else ""
+    if not topic:
+        await update.message.reply_text("Укажи тему после команды.\nПример: /pack практика Танец Души")
+        return
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("GEMINI_API_KEY не задан в .env")
+        return
+    await _run_pack(update.message, topic, context.user_data)
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mode = context.user_data.get("last_pipeline_mode") or "ещё не запускался"
+    busy = "да" if update.effective_chat.id in _active_pipelines else "нет"
+    await update.message.reply_text(
+        "Состояние SMM-команды:\n"
+        f"• Gemini: {'подключён' if GEMINI_API_KEY else 'не настроен'}\n"
+        "• /post: 5 ролей, только Telegram\n"
+        "• /pack: полный Telegram + Instagram\n"
+        f"• последний режим: {mode}\n"
+        f"• команда сейчас занята: {busy}"
+    )
 
 
 async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1130,8 +1279,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "SMM-команда Дмитрия Сучкова\n\n"
         "Команды:\n\n"
-        "/post тема — полный цикл создания контента\n"
+        "/post тема — новый компактный конвейер Telegram-поста\n"
         "Пример: /post практика Танец Души\n\n"
+        "/pack тема — полный пакет Telegram + Instagram\n\n"
+        "/status — состояние команды и режимов\n\n"
         "/offer продукт — создать продающий оффер\n"
         "Пример: /offer Личная сессия с Дмитрием\n\n"
         "/architect — аудит команды\n"
@@ -1387,7 +1538,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if choice == "yes":
             topic = context.user_data.get("last_post_topic", "")
             await query.edit_message_text(f"Запускаю доработку поста «{topic}»...")
-            await _run_post(query.message, topic, context.user_data, feedback=pending_text)
+            if context.user_data.get("last_pipeline_mode") == "pack":
+                await _run_pack(query.message, topic, context.user_data, feedback=pending_text)
+            else:
+                await _run_post(query.message, topic, context.user_data, feedback=pending_text)
         else:
             await query.edit_message_text(f"Запускаю пост по теме:\n«{pending_text}»")
             await _run_post(query.message, pending_text, context.user_data)
@@ -1413,7 +1567,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         context.user_data["pending_feedback"] = ""
         await query.edit_message_text(f"Запускаю доработку.\nПравки: {feedback}")
-        await _run_post(query.message, topic, context.user_data, feedback=feedback)
+        if context.user_data.get("last_pipeline_mode") == "pack":
+            await _run_pack(query.message, topic, context.user_data, feedback=feedback)
+        else:
+            await _run_post(query.message, topic, context.user_data, feedback=feedback)
 
     elif data.startswith("igshow:"):
         label = data[len("igshow:"):]
@@ -1659,6 +1816,8 @@ def main():
 
     app.add_handler(CommandHandler(["help", "start"], cmd_help))
     app.add_handler(CommandHandler("post", cmd_post))
+    app.add_handler(CommandHandler("pack", cmd_pack))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CommandHandler("plan", cmd_plan))
