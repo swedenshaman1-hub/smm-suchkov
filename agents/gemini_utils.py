@@ -32,7 +32,13 @@ def gemini_call(api_key: str, model: str, system: str, user_msg: str,
                 raise ValueError("Gemini вернул пустой ответ (вероятно, исчерпан лимит токенов на 'размышления')")
             return response.text
         except Exception as e:
-            if ("503" in str(e) or "UNAVAILABLE" in str(e)) and attempt < attempts - 1:
-                time.sleep(10 * (attempt + 1))
+            error_text = str(e).lower()
+            transient = any(marker in error_text for marker in (
+                "503", "unavailable", "timeout", "timed out", "connecterror",
+                "connection reset", "unexpected_eof", "eof occurred", "ssl",
+                "server disconnected", "remoteprotocolerror", "429", "resource_exhausted",
+            ))
+            if transient and attempt < attempts - 1:
+                time.sleep(min(5 * (attempt + 1), 20))
                 continue
             raise

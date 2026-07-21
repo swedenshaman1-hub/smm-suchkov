@@ -3,4 +3,5 @@ memory/
 __pycache__/
 *.pyc
 bot_state.pkl
+eval_runs/
 .DS_Store

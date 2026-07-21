@@ -497,6 +497,20 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 voice_samples=voice_samples, issues=remaining_warnings,
             )
 
+        final_audit = None
+        for audit_attempt in range(2):
+            final_audit = await _run_blocking(telegram_team.audit_final, topic, polished, GEMINI_API_KEY)
+            if final_audit.get("accepted"):
+                break
+            await msg.reply_text("Игорь — финальный аудит нашёл остаточную шаблонность, переписываю точечно...")
+            polished = await _run_blocking(
+                telegram_team.rewrite_final, topic, polished, final_audit, GEMINI_API_KEY,
+                voice_samples=voice_samples,
+            )
+
+        if final_audit and not final_audit.get("accepted"):
+            logger.warning("Final editorial audit remained below threshold: %s", final_audit)
+
         polished_errors = telegram_team.validate_post(polished)
         selected_errors = telegram_team.validate_post(selected)
         if polished_errors:
