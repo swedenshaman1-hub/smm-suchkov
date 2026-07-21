@@ -152,12 +152,26 @@ def polish(topic: str, text: str, api_key: str) -> str:
 
 
 def extract_variant(variants: str, letter: str) -> str:
+    """Extract one draft despite Markdown headings or descriptive suffixes.
+
+    Never return all three drafts when recognizable variant headings are present.
+    """
     letters = "АБВ"
     letter = letter if letter in letters else "А"
-    pattern = rf"(?:^|\n)\s*ВАРИАНТ\s+{letter}\s*\n(.*?)(?=\n\s*ВАРИАНТ\s+[АБВ]\s*\n|\Z)"
-    match = re.search(pattern, variants, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    header = re.compile(
+        r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*{1,2}|_{1,2})?\s*"
+        r"ВАРИАНТ\s+([АБВ])\s*(?:\*{1,2}|_{1,2})?\s*"
+        r"(?:(?:[:—-])[^\n]*)?\n",
+        re.IGNORECASE,
+    )
+    matches = list(header.finditer(variants))
+    sections = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(variants)
+        sections[match.group(1).upper()] = variants[start:end].strip()
+    if sections:
+        return sections.get(letter) or next(iter(sections.values()))
     return variants.strip()
 
 
@@ -166,8 +180,9 @@ def validate_post(text: str) -> list[str]:
     clean = text.strip()
     if len(clean) < 350:
         errors.append("текст короче 350 знаков")
-    if len(clean) > 2200:
-        errors.append("текст длиннее 2200 знаков")
+    # 900–1800 is the editorial target; 3800 is the hard delivery guardrail.
+    if len(clean) > 3800:
+        errors.append("текст длиннее 3800 знаков")
     if re.search(r"(?:^|\n)\s*(ВАРИАНТ|РЕШЕНИЕ|КОММЕНТАРИЙ)\b", clean, re.IGNORECASE):
         errors.append("в тексте осталась служебная разметка")
     if clean and clean[-1] not in ".!?…»\")":
