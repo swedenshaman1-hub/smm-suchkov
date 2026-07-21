@@ -207,7 +207,7 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_running_loop()
         try:
             audio_path = await asyncio.wait_for(
-                loop.run_in_executor(None, _text_to_speech, text), timeout=135
+                loop.run_in_executor(None, _text_to_speech, text), timeout=55
             )
         except Exception as primary_error:
             logger.warning("Gemini TTS failed, switching to Edge TTS: %s", primary_error)
@@ -231,7 +231,7 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _text_to_speech(text: str) -> str:
     """Озвучивает текст через Gemini TTS (надёжнее на облачных серверах, чем gTTS,
     который ходит на неофициальный эндпоинт Google Translate и часто блокирует datacenter IP)."""
-    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=120_000))
+    client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=45_000))
     last_error = None
     for attempt in range(1):
         try:
