@@ -4,13 +4,14 @@ The full legacy multi-platform pipeline remains available in telegram_bot.py.
 This module deliberately keeps five responsibilities separate and prompts short.
 """
 import json
+import os
 import re
 
 from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 
-MODEL = "gemini-2.5-flash"
+MODEL = os.getenv("GEMINI_CREATIVE_MODEL", "gemini-2.5-pro")
 
 RESEARCHER_PROMPT = """Ты — Нина, исследователь аудитории Telegram-канала Дмитрия Сучкова.
 Твоя работа — дать автору фактическую опору, а не придумать психологический портрет читателя.
@@ -168,6 +169,73 @@ FINAL_REWRITER_PROMPT = """Ты — сильный автор и выпуска�
 - только готовый пост, без комментариев."""
 
 
+# V2 adds a content contract. The earlier prompts remain useful for role and voice,
+# while this contract prevents a fluent draft from hiding a weak idea.
+STRATEGIST_PROMPT += """
+
+КОНТРАКТ СОДЕРЖАНИЯ V2
+Не выбирай угол, пока не построишь проверочную матрицу. Для каждого из пяти углов укажи:
+1) два независимых наблюдаемых признака — действия, слова, решения или последствия;
+2) контрпример, при котором похожая ситуация означает другое;
+3) границу вывода: чего по этим признакам утверждать нельзя;
+4) новую полезную разницу, которую читатель сможет применить сегодня.
+
+Запрещено использовать внутренние ощущения как доказательство причины. «Стало легче», «появился осадок»,
+«внутри сжалось» могут быть деталью, но не ответом. Запрещено выбирать угол, который можно пересказать
+словами «слушайте себя», «берегите границы», «разрешите себе» или «всё индивидуально».
+
+В блоке ВЫБОР обязательно дай:
+ТЕЗИС — одно предложение без метафоры.
+КРИТЕРИЙ 1 — наблюдаемый признак и что именно он различает.
+КРИТЕРИЙ 2 — другой, независимый признак.
+КОНТРПРИМЕР — когда оба явления похожи внешне, но различаются по результату.
+ОГРАНИЧЕНИЕ — чего мы не знаем.
+ПОВОРОТ — одна неочевидная, но логически выведенная мысль.
+Не компенсируй слабую мысль красивым языком.
+"""
+
+WRITER_PROMPT += """
+
+КОНТРАКТ ТЕКСТА V2
+Каждый вариант должен быть 650–1200 знаков. В нём должны появиться оба независимых критерия и контрпример
+из стратегии. Не перечисляй их как памятку: проведи читателя через различие. Каждый абзац выполняет новую
+функцию: напряжение → первый критерий → второй критерий → контрпример/ограничение → точный финал.
+
+Ноль декоративных метафор. Ноль описаний погоды, света, тишины, воздуха, тела и интерьера, если эта деталь
+не меняет вывод. Не начинай с выдуманной кинематографической сцены. Не повторяй тезис другими словами.
+Пиши так, будто умный человек объясняет одно точное наблюдение знакомому, а не выступает с лекцией.
+"""
+
+EDITOR_PROMPT += """
+
+ПРАВИЛО ОТБОРА V2
+Сначала составь для каждого варианта таблицу наличия: тезис, критерий 1, критерий 2, контрпример,
+ограничение, новый вывод. Если хотя бы одного элемента нет, вариант не может быть принят независимо от стиля.
+Не выбирай самый гладкий текст: выбирай тот, где различия наблюдаемы и независимы. Если все три слабы,
+верни ДОРАБОТКА и потребуй конкретно недостающий элемент. Красивые метафоры не считаются конкретикой.
+"""
+
+FINAL_AUDITOR_PROMPT += """
+
+Порог выпуска V2: accepted=true только если каждый балл не ниже 9.5. Особенно строго проверь:
+- можно ли проверить каждый критерий по действиям, словам, решениям или последствиям;
+- не являются ли два критерия одной мыслью в разных словах;
+- есть ли настоящий контрпример и граница вывода;
+- появляется ли к финалу новая мысль, а не повтор начала;
+- можно ли удалить абзац без потери логики: если да, retention ниже 9.5.
+Обычный грамотный психологический пост — 6–7. Красивый, но знакомый — не выше 7.
+"""
+
+FINAL_REWRITER_PROMPT += """
+
+ПРАВИЛО ПЕРЕПИСЫВАНИЯ V2
+Не редактируй слабую конструкцию построчно. Если аудит указывает на повтор, банальность или зависимые критерии,
+сначала молча перестрой логику и только затем напиши новый текст. Итог 650–1200 знаков. Сохрани лишь то,
+что выдерживает проверку: два независимых наблюдаемых критерия, контрпример, ограничение и новый вывод.
+Удаляй декоративные сцены и метафоры полностью, а не заменяй их другими.
+"""
+
+
 def _uniqueness_context(topic: str, include_audience: bool = False) -> str:
     """Fresh compact context without legacy agent insights or failed draft feedback."""
     lines = []
@@ -217,7 +285,7 @@ def strategize(topic: str, research_note: str, api_key: str) -> str:
     context = _uniqueness_context(topic)
     user_msg = f"Тема: «{topic}»\n\nИсследовательская записка Нины:\n{research_note}"
     return gemini_call(api_key, MODEL, STRATEGIST_PROMPT + context, user_msg,
-                       max_tokens=2600, temperature=0.8, disable_thinking=True)
+                       max_tokens=3200, temperature=0.75, disable_thinking=False)
 
 
 def write(topic: str, research_note: str, strategy: str, api_key: str,
@@ -234,14 +302,14 @@ def write(topic: str, research_note: str, strategy: str, api_key: str,
             "и способ обращения. Не копируй фразы, сюжеты, утверждения и ошибки:\n" + voice_samples
         )
     return gemini_call(api_key, MODEL, WRITER_PROMPT + context, user_msg,
-                       max_tokens=3500, temperature=0.85, disable_thinking=True)
+                       max_tokens=3500, temperature=0.75, disable_thinking=False)
 
 
 def review(topic: str, strategy: str, variants: str, api_key: str) -> dict:
     context = _uniqueness_context(topic)
     user_msg = f"Тема: «{topic}»\n\nСтратегия:\n{strategy}\n\nТри варианта:\n{variants}"
     text = gemini_call(api_key, MODEL, EDITOR_PROMPT + context, user_msg,
-                       max_tokens=1200, temperature=0.25, disable_thinking=True)
+                       max_tokens=1800, temperature=0.2, disable_thinking=False)
     first = text.strip().splitlines()[0].upper() if text.strip() else ""
     letter_match = re.search(r"ВАРИАНТ\s*:\s*([АБВ])", first)
     return {
@@ -269,7 +337,7 @@ def audit_final(topic: str, text: str, api_key: str) -> dict:
     raw = gemini_call(
         api_key, MODEL, FINAL_AUDITOR_PROMPT,
         f"ТЕМА:\n{topic}\n\nФИНАЛЬНЫЙ ТЕКСТ:\n{text}",
-        max_tokens=900, temperature=0.1, disable_thinking=True,
+        max_tokens=1100, temperature=0.1, disable_thinking=False,
     )
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
     try:
@@ -280,7 +348,7 @@ def audit_final(topic: str, text: str, api_key: str) -> dict:
     numeric = [float(v) for v in scores.values() if isinstance(v, (int, float))]
     mean = round(sum(numeric) / len(numeric), 2) if numeric else float(result.get("mean") or 0)
     result["mean"] = mean
-    result["accepted"] = bool(result.get("accepted")) and mean >= 9.0 and all(v >= 9 for v in numeric)
+    result["accepted"] = bool(result.get("accepted")) and mean >= 9.5 and all(v >= 9.5 for v in numeric)
     return result
 
 
@@ -296,7 +364,7 @@ def rewrite_final(topic: str, text: str, audit: dict, api_key: str, voice_sample
         )
     return gemini_call(
         api_key, MODEL, FINAL_REWRITER_PROMPT, user_msg,
-        max_tokens=1800, temperature=0.55, disable_thinking=True,
+        max_tokens=1800, temperature=0.45, disable_thinking=False,
     ).strip()
 
 
