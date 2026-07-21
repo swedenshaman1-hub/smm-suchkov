@@ -11,7 +11,7 @@ from agents.gemini_utils import gemini_call
 from agents import memory_utils
 
 
-MODEL = os.getenv("GEMINI_CREATIVE_MODEL", "gemini-2.5-pro")
+MODEL = os.getenv("GEMINI_CREATIVE_MODEL", "gemini-2.5-flash")
 FAST_MODEL = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash")
 
 RESEARCHER_PROMPT = """Ты — Нина, исследователь аудитории Telegram-канала Дмитрия Сучкова.

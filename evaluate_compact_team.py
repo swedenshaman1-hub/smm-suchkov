@@ -15,7 +15,7 @@ from agents.gemini_utils import gemini_call
 
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 CHANNEL_CHAT_ID = -1001800141714
-EVAL_MODEL = os.getenv("GEMINI_EVAL_MODEL", "gemini-2.5-pro")
+EVAL_MODEL = os.getenv("GEMINI_EVAL_MODEL", "gemini-2.5-flash")
 
 TOPICS = [
     "Как отличить поддержку близкого человека от попытки незаметно управлять его выбором?",
