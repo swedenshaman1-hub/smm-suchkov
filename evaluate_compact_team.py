@@ -56,7 +56,7 @@ def evaluate(topic: str, post: str) -> dict:
     raw = gemini_call(
         API_KEY, EVAL_MODEL, EVALUATOR_PROMPT,
         f"ТЕМА:\n{topic}\n\nПОСТ:\n{post}",
-        max_tokens=1400, temperature=0.1, disable_thinking=False,
+        max_tokens=5000, temperature=0.1, disable_thinking=False,
     )
     return parse_json(raw)
 

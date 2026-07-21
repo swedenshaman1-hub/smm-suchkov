@@ -12,6 +12,7 @@ from agents import memory_utils
 
 
 MODEL = os.getenv("GEMINI_CREATIVE_MODEL", "gemini-2.5-pro")
+FAST_MODEL = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash")
 
 RESEARCHER_PROMPT = """Ты — Нина, исследователь аудитории Telegram-канала Дмитрия Сучкова.
 Твоя работа — дать автору фактическую опору, а не придумать психологический портрет читателя.
@@ -276,7 +277,7 @@ def build_voice_samples(posts: list, limit: int = 5) -> str:
 
 def research(topic: str, api_key: str) -> str:
     context = _uniqueness_context(topic, include_audience=True)
-    return gemini_call(api_key, MODEL, RESEARCHER_PROMPT + context,
+    return gemini_call(api_key, FAST_MODEL, RESEARCHER_PROMPT + context,
                        f"Тема поста: «{topic}»", max_tokens=1800, temperature=0.45,
                        disable_thinking=True)
 
@@ -285,7 +286,7 @@ def strategize(topic: str, research_note: str, api_key: str) -> str:
     context = _uniqueness_context(topic)
     user_msg = f"Тема: «{topic}»\n\nИсследовательская записка Нины:\n{research_note}"
     return gemini_call(api_key, MODEL, STRATEGIST_PROMPT + context, user_msg,
-                       max_tokens=3200, temperature=0.75, disable_thinking=False)
+                       max_tokens=7000, temperature=0.75, disable_thinking=False)
 
 
 def write(topic: str, research_note: str, strategy: str, api_key: str,
@@ -301,15 +302,15 @@ def write(topic: str, research_note: str, strategy: str, api_key: str,
             "\n\nОБРАЗЦЫ РЕАЛЬНЫХ ПУБЛИКАЦИЙ КАНАЛА — используй только ритм, степень разговорности "
             "и способ обращения. Не копируй фразы, сюжеты, утверждения и ошибки:\n" + voice_samples
         )
-    return gemini_call(api_key, MODEL, WRITER_PROMPT + context, user_msg,
-                       max_tokens=3500, temperature=0.75, disable_thinking=False)
+    return gemini_call(api_key, FAST_MODEL, WRITER_PROMPT + context, user_msg,
+                       max_tokens=3500, temperature=0.75, disable_thinking=True)
 
 
 def review(topic: str, strategy: str, variants: str, api_key: str) -> dict:
     context = _uniqueness_context(topic)
     user_msg = f"Тема: «{topic}»\n\nСтратегия:\n{strategy}\n\nТри варианта:\n{variants}"
     text = gemini_call(api_key, MODEL, EDITOR_PROMPT + context, user_msg,
-                       max_tokens=1800, temperature=0.2, disable_thinking=False)
+                       max_tokens=6000, temperature=0.2, disable_thinking=False)
     first = text.strip().splitlines()[0].upper() if text.strip() else ""
     letter_match = re.search(r"ВАРИАНТ\s*:\s*([АБВ])", first)
     return {
@@ -329,7 +330,7 @@ def polish(topic: str, text: str, api_key: str, voice_samples: str = "", issues:
         )
     if issues:
         user_msg += "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- " + "\n- ".join(issues)
-    return gemini_call(api_key, MODEL, VOICE_PROMPT + context, user_msg,
+    return gemini_call(api_key, FAST_MODEL, VOICE_PROMPT + context, user_msg,
                        max_tokens=2200, temperature=0.35, disable_thinking=True).strip()
 
 
@@ -337,7 +338,7 @@ def audit_final(topic: str, text: str, api_key: str) -> dict:
     raw = gemini_call(
         api_key, MODEL, FINAL_AUDITOR_PROMPT,
         f"ТЕМА:\n{topic}\n\nФИНАЛЬНЫЙ ТЕКСТ:\n{text}",
-        max_tokens=1100, temperature=0.1, disable_thinking=False,
+        max_tokens=5000, temperature=0.1, disable_thinking=False,
     )
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
     try:
@@ -364,7 +365,7 @@ def rewrite_final(topic: str, text: str, audit: dict, api_key: str, voice_sample
         )
     return gemini_call(
         api_key, MODEL, FINAL_REWRITER_PROMPT, user_msg,
-        max_tokens=1800, temperature=0.45, disable_thinking=False,
+        max_tokens=6000, temperature=0.45, disable_thinking=False,
     ).strip()
 
 
