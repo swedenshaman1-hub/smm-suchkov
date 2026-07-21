@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import wave
+import edge_tts
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -204,16 +205,21 @@ async def handle_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text("🔊 Озвучиваю — может занять до пары минут...")
     try:
         loop = asyncio.get_running_loop()
-        audio_path = await asyncio.wait_for(
-            loop.run_in_executor(None, _text_to_speech, text), timeout=150
-        )
+        try:
+            audio_path = await asyncio.wait_for(
+                loop.run_in_executor(None, _text_to_speech, text), timeout=135
+            )
+        except Exception as primary_error:
+            logger.warning("Gemini TTS failed, switching to Edge TTS: %s", primary_error)
+            await query.message.reply_text("Основной голос не ответил — переключаюсь на резервный...")
+            audio_path = await asyncio.wait_for(_edge_text_to_speech(text), timeout=120)
         preview = text.strip().splitlines()[0][:60]
         caption = f"🔊 {label_line}\n{preview}…" if label_line else f"🔊 {preview}…"
         with open(audio_path, "rb") as f:
             await query.message.reply_audio(f, title=label_line or "Озвучка сообщения", caption=caption)
     except Exception as e:
         logger.exception("Ошибка озвучки")
-        await query.message.reply_text(f"Не удалось озвучить (сервис озвучки не ответил). Попробуй ещё раз через минуту.\n\nТехническая причина: {e}")
+        await query.message.reply_text("Не удалось озвучить: оба голосовых сервиса временно не ответили. Попробуй ещё раз через минуту.")
     finally:
         if audio_path:
             try:
@@ -227,7 +233,7 @@ def _text_to_speech(text: str) -> str:
     который ходит на неофициальный эндпоинт Google Translate и часто блокирует datacenter IP)."""
     client = google_genai.Client(api_key=GEMINI_API_KEY, http_options=genai_types.HttpOptions(timeout=120_000))
     last_error = None
-    for attempt in range(3):
+    for attempt in range(1):
         try:
             response = client.models.generate_content(
                 model="gemini-2.5-flash-preview-tts",
@@ -248,7 +254,7 @@ def _text_to_speech(text: str) -> str:
                 continue
             raise
     else:
-        raise TimeoutError(f"Gemini TTS не ответил за 3 попытки: {last_error}")
+        raise TimeoutError(f"Gemini TTS не ответил: {last_error}")
     pcm_data = response.candidates[0].content.parts[0].inline_data.data
 
     fd, path = tempfile.mkstemp(suffix=".wav")
@@ -259,6 +265,22 @@ def _text_to_speech(text: str) -> str:
         wf.setframerate(24000)
         wf.writeframes(pcm_data)
     return path
+
+
+async def _edge_text_to_speech(text: str) -> str:
+    """Fallback Russian neural voice when Gemini preview TTS is unavailable."""
+    fd, path = tempfile.mkstemp(suffix=".mp3")
+    os.close(fd)
+    try:
+        communicate = edge_tts.Communicate(text[:3800], "ru-RU-SvetlanaNeural")
+        await communicate.save(path)
+        return path
+    except Exception:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+        raise
 
 
 _REFUSAL_MARKERS = (
