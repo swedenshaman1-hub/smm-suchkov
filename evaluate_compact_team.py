@@ -64,6 +64,7 @@ def evaluate(topic: str, post: str) -> dict:
 def run_topic(topic: str, voice_samples: str) -> dict:
     research = telegram_team.research(topic, API_KEY)
     strategy = telegram_team.strategize(topic, research, API_KEY)
+    strategy = telegram_team.curate_strategy(topic, research, strategy, API_KEY)
     variants = telegram_team.write(topic, research, strategy, API_KEY, voice_samples=voice_samples)
     review = telegram_team.review(topic, strategy, variants, API_KEY)
     selected = telegram_team.extract_variant(variants, review["variant"])

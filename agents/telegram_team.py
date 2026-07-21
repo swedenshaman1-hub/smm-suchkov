@@ -236,6 +236,29 @@ FINAL_REWRITER_PROMPT += """
 Удаляй декоративные сцены и метафоры полностью, а не заменяй их другими.
 """
 
+ANGLE_CURATOR_PROMPT = """Ты — независимый куратор идей Telegram-канала. Твоя задача — не улучшать
+формулировки, а отсеивать знакомые психологические тезисы до написания поста.
+
+Проверь выбранную стратегию тремя вопросами:
+1. Мог ли читатель предсказать вывод уже по теме? Если да, стратегия слишком очевидна.
+2. Можно ли заменить весь текст советом «слушайте себя», «уважайте границы» или «смотрите на поступки»?
+Если да, ценности нет.
+3. Действительно ли два критерия независимы и меняют решение читателя в разные стороны?
+
+Если стратегия банальна, не делай её искусственно парадоксальной. Найди более узкую причинную или
+практическую развилку в предоставленном материале. Новый угол обязан оставаться осторожным и логичным.
+Верни полностью готовую стратегию в формате:
+ТЕЗИС
+КРИТЕРИЙ 1
+КРИТЕРИЙ 2
+КОНТРПРИМЕР
+ОГРАНИЧЕНИЕ
+ПОВОРОТ
+ХУК
+
+В ПОВОРОТЕ должна быть мысль, которую нельзя получить простым повторением исходной темы.
+Только стратегия, без оценки и служебных комментариев."""
+
 
 def _uniqueness_context(topic: str, include_audience: bool = False) -> str:
     """Fresh compact context without legacy agent insights or failed draft feedback."""
@@ -287,6 +310,17 @@ def strategize(topic: str, research_note: str, api_key: str) -> str:
     user_msg = f"Тема: «{topic}»\n\nИсследовательская записка Нины:\n{research_note}"
     return gemini_call(api_key, MODEL, STRATEGIST_PROMPT + context, user_msg,
                        max_tokens=7000, temperature=0.75, disable_thinking=False)
+
+
+def curate_strategy(topic: str, research_note: str, strategy: str, api_key: str) -> str:
+    user_msg = (
+        f"ТЕМА:\n{topic}\n\nИССЛЕДОВАТЕЛЬСКАЯ ОПОРА:\n{research_note}\n\n"
+        f"СТРАТЕГИЯ ДЛЯ ПРОВЕРКИ:\n{strategy}"
+    )
+    return gemini_call(
+        api_key, MODEL, ANGLE_CURATOR_PROMPT, user_msg,
+        max_tokens=5000, temperature=0.35, disable_thinking=False,
+    ).strip()
 
 
 def write(topic: str, research_note: str, strategy: str, api_key: str,

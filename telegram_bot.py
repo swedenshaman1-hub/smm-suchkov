@@ -451,6 +451,9 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             strategy_output = await _run_blocking(
                 telegram_team.strategize, topic, research_note, GEMINI_API_KEY
             )
+            strategy_output = await _run_blocking(
+                telegram_team.curate_strategy, topic, research_note, strategy_output, GEMINI_API_KEY
+            )
 
         await msg.reply_text("Маша — пишу три действительно разных варианта...")
         variants = await _run_blocking(
