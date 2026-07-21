@@ -29,6 +29,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+# python-telegram-bot uses URLs containing the bot token; never emit them to logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
