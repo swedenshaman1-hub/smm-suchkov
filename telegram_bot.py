@@ -414,6 +414,9 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             "Пять ролей, один цикл содержательной доработки. Обычно 1–2 минуты."
         )
 
+        recent_posts = await _run_blocking(channel_stats.get_recent_posts, CHANNEL_CHAT_ID, 8)
+        voice_samples = telegram_team.build_voice_samples(recent_posts)
+
         if reuse_previous:
             research_note = user_data["last_analysis"]
             strategy_output = user_data["last_strategy"]
@@ -432,6 +435,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
             feedback=feedback,
             previous_text=user_data.get("last_final_tg") if feedback else None,
+            voice_samples=voice_samples,
         )
 
         await msg.reply_text("Игорь — выбираю лучший вариант и проверяю смысл...")
@@ -444,7 +448,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await msg.reply_text("Игорь нашёл существенную правку. Маша дорабатывает выбранный вариант один раз...")
             revised_variants = await _run_blocking(
                 telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
-                feedback=editorial["review"], previous_text=selected,
+                feedback=editorial["review"], previous_text=selected, voice_samples=voice_samples,
             )
             editorial = await _run_blocking(
                 telegram_team.review, topic, strategy_output, revised_variants, GEMINI_API_KEY
@@ -457,7 +461,19 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 )
 
         await msg.reply_text("Даша — точечно настраиваю текст под голос Дмитрия, не меняя мысль...")
-        polished = await _run_blocking(telegram_team.polish, topic, selected, GEMINI_API_KEY)
+        selected_warnings = telegram_team.quality_warnings(selected)
+        polished = await _run_blocking(
+            telegram_team.polish, topic, selected, GEMINI_API_KEY,
+            voice_samples=voice_samples, issues=selected_warnings,
+        )
+
+        remaining_warnings = telegram_team.quality_warnings(polished)
+        if remaining_warnings:
+            await msg.reply_text("Даша — убираю оставшиеся шаблоны и смысловые повторы...")
+            polished = await _run_blocking(
+                telegram_team.polish, topic, polished, GEMINI_API_KEY,
+                voice_samples=voice_samples, issues=remaining_warnings,
+            )
 
         polished_errors = telegram_team.validate_post(polished)
         selected_errors = telegram_team.validate_post(selected)
