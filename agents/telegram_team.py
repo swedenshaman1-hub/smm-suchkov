@@ -309,7 +309,7 @@ def build_voice_samples(posts: list, limit: int = 5) -> str:
 def research(topic: str, api_key: str) -> str:
     context = _uniqueness_context(topic, include_audience=True)
     return gemini_call(api_key, FAST_MODEL, RESEARCHER_PROMPT + context,
-                       f"Тема поста: «{topic}»", max_tokens=1800, temperature=0.45,
+                       f"Тема поста: «{topic}»", max_tokens=4000, temperature=0.45,
                        disable_thinking=True)
 
 
@@ -345,7 +345,7 @@ def write(topic: str, research_note: str, strategy: str, api_key: str,
             "и способ обращения. Не копируй фразы, сюжеты, утверждения и ошибки:\n" + voice_samples
         )
     return gemini_call(api_key, FAST_MODEL, WRITER_PROMPT + context, user_msg,
-                       max_tokens=3500, temperature=0.75, disable_thinking=True)
+                       max_tokens=7000, temperature=0.75, disable_thinking=True)
 
 
 def review(topic: str, strategy: str, variants: str, api_key: str) -> dict:
@@ -373,7 +373,7 @@ def polish(topic: str, text: str, api_key: str, voice_samples: str = "", issues:
     if issues:
         user_msg += "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- " + "\n- ".join(issues)
     return gemini_call(api_key, FAST_MODEL, VOICE_PROMPT + context, user_msg,
-                       max_tokens=2200, temperature=0.35, disable_thinking=True).strip()
+                       max_tokens=5000, temperature=0.35, disable_thinking=True).strip()
 
 
 def audit_final(topic: str, text: str, api_key: str) -> dict:
@@ -407,7 +407,7 @@ def rewrite_final(topic: str, text: str, audit: dict, api_key: str, voice_sample
         )
     return gemini_call(
         api_key, FAST_MODEL, FINAL_REWRITER_PROMPT, user_msg,
-        max_tokens=2600, temperature=0.45, disable_thinking=True,
+        max_tokens=5000, temperature=0.45, disable_thinking=True,
     ).strip()
 
 
