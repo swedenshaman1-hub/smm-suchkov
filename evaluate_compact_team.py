@@ -15,7 +15,7 @@ from agents.gemini_utils import gemini_call
 
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 CHANNEL_CHAT_ID = -1001800141714
-EVAL_MODEL = os.getenv("GEMINI_EVAL_MODEL", "gemini-2.5-flash")
+EVAL_MODEL = os.getenv("GEMINI_EVAL_MODEL", "gemini-pro-latest")
 
 TOPICS = [
     "Как отличить поддержку близкого человека от попытки незаметно управлять его выбором?",
@@ -83,12 +83,18 @@ def run_topic(topic: str, voice_samples: str) -> dict:
     if warnings:
         post = telegram_team.polish(topic, post, API_KEY, voice_samples=voice_samples, issues=warnings)
     internal_audits = []
-    for audit_attempt in range(3):
+    best_post = post
+    best_mean = -1.0
+    for audit_attempt in range(4):
         audit = telegram_team.audit_final(topic, post, API_KEY)
         internal_audits.append(audit)
-        if audit.get("accepted") or audit_attempt == 2:
+        audit_mean = float(audit.get("mean") or 0)
+        if not telegram_team.validate_post(post) and audit_mean > best_mean:
+            best_post, best_mean = post, audit_mean
+        if audit.get("accepted") or audit_attempt == 3:
             break
         post = telegram_team.rewrite_final(topic, post, audit, API_KEY, voice_samples=voice_samples)
+    post = best_post
     technical_errors = telegram_team.validate_post(post)
     if technical_errors:
         repaired = telegram_team.polish(
