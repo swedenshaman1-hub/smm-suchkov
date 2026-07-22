@@ -507,8 +507,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         for audit_attempt in range(4):
             final_audit = await _run_blocking(telegram_team.audit_final, topic, polished, GEMINI_API_KEY)
             audit_mean = float(final_audit.get("mean") or 0)
-            if not telegram_team.validate_post(polished) and audit_mean > best_audit_mean:
-                best_polished, best_audit_mean = polished, audit_mean
+            editorial_penalty = min(3.0, 1.5 * len(telegram_team.quality_warnings(polished)))
+            candidate_score = audit_mean - editorial_penalty
+            if not telegram_team.validate_post(polished) and candidate_score > best_audit_mean:
+                best_polished, best_audit_mean = polished, candidate_score
                 best_final_audit = final_audit
             if final_audit.get("accepted") or audit_attempt == 3:
                 break

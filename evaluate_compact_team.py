@@ -89,8 +89,10 @@ def run_topic(topic: str, voice_samples: str) -> dict:
         audit = telegram_team.audit_final(topic, post, API_KEY)
         internal_audits.append(audit)
         audit_mean = float(audit.get("mean") or 0)
-        if not telegram_team.validate_post(post) and audit_mean > best_mean:
-            best_post, best_mean = post, audit_mean
+        editorial_penalty = min(3.0, 1.5 * len(telegram_team.quality_warnings(post)))
+        candidate_score = audit_mean - editorial_penalty
+        if not telegram_team.validate_post(post) and candidate_score > best_mean:
+            best_post, best_mean = post, candidate_score
         if audit.get("accepted") or audit_attempt == 3:
             break
         post = telegram_team.rewrite_final(topic, post, audit, API_KEY, voice_samples=voice_samples)
