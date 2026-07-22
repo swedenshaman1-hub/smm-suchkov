@@ -504,7 +504,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         best_final_audit = None
         best_polished = polished
         best_audit_mean = -1.0
-        for audit_attempt in range(4):
+        for audit_attempt in range(3):
             final_audit = await _run_blocking(telegram_team.audit_final, topic, polished, GEMINI_API_KEY)
             audit_mean = float(final_audit.get("mean") or 0)
             editorial_penalty = min(3.0, 1.5 * len(telegram_team.quality_warnings(polished)))
@@ -512,7 +512,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             if not telegram_team.validate_post(polished) and candidate_score > best_audit_mean:
                 best_polished, best_audit_mean = polished, candidate_score
                 best_final_audit = final_audit
-            if final_audit.get("accepted") or audit_attempt == 3:
+            if final_audit.get("accepted") or audit_attempt == 2:
                 break
             await msg.reply_text("Игорь — финальный аудит нашёл остаточную шаблонность, переписываю точечно...")
             polished = await _run_blocking(

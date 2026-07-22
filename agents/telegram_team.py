@@ -13,6 +13,7 @@ from agents import memory_utils
 
 MODEL = os.getenv("GEMINI_CREATIVE_MODEL", "gemini-3.6-flash")
 FAST_MODEL = os.getenv("GEMINI_FAST_MODEL", "gemini-3.6-flash")
+AUDIT_MODEL = os.getenv("GEMINI_AUDIT_MODEL", "gemini-pro-latest")
 
 RESEARCHER_PROMPT = """Ты — Нина, исследователь аудитории Telegram-канала Дмитрия Сучкова.
 Твоя работа — дать автору фактическую опору, а не придумать психологический портрет читателя.
@@ -382,7 +383,7 @@ def polish(topic: str, text: str, api_key: str, voice_samples: str = "", issues:
 
 def audit_final(topic: str, text: str, api_key: str) -> dict:
     raw = gemini_call(
-        api_key, MODEL, FINAL_AUDITOR_PROMPT,
+        api_key, AUDIT_MODEL, FINAL_AUDITOR_PROMPT,
         f"ТЕМА:\n{topic}\n\nФИНАЛЬНЫЙ ТЕКСТ:\n{text}",
         max_tokens=5000, temperature=0.1, disable_thinking=False,
     )

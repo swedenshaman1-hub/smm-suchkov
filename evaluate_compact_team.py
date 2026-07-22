@@ -85,7 +85,7 @@ def run_topic(topic: str, voice_samples: str) -> dict:
     internal_audits = []
     best_post = post
     best_mean = -1.0
-    for audit_attempt in range(4):
+    for audit_attempt in range(3):
         audit = telegram_team.audit_final(topic, post, API_KEY)
         internal_audits.append(audit)
         audit_mean = float(audit.get("mean") or 0)
@@ -93,7 +93,7 @@ def run_topic(topic: str, voice_samples: str) -> dict:
         candidate_score = audit_mean - editorial_penalty
         if not telegram_team.validate_post(post) and candidate_score > best_mean:
             best_post, best_mean = post, candidate_score
-        if audit.get("accepted") or audit_attempt == 3:
+        if audit.get("accepted") or audit_attempt == 2:
             break
         post = telegram_team.rewrite_final(topic, post, audit, API_KEY, voice_samples=voice_samples)
     post = best_post
