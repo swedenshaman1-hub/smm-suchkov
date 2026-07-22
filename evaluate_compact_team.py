@@ -61,7 +61,7 @@ def evaluate(topic: str, post: str) -> dict:
     return parse_json(raw)
 
 
-def run_topic(topic: str, voice_samples: str) -> dict:
+def run_topic(topic: str, voice_samples: str, quick: bool = False) -> dict:
     research = telegram_team.research(topic, API_KEY)
     strategy = telegram_team.strategize(topic, research, API_KEY)
     strategy = telegram_team.curate_strategy(topic, research, strategy, API_KEY)
@@ -82,6 +82,11 @@ def run_topic(topic: str, voice_samples: str) -> dict:
     warnings = telegram_team.quality_warnings(post)
     if warnings:
         post = telegram_team.polish(topic, post, API_KEY, voice_samples=voice_samples, issues=warnings)
+    if quick:
+        return {
+            "topic": topic, "post": post, "editor": review,
+            "internal_audits": [], "evaluation": evaluate(topic, post),
+        }
     internal_audits = []
     best_post = post
     best_mean = -1.0
@@ -120,9 +125,11 @@ def main():
     run_stamp = f"{datetime.now():%Y%m%d_%H%M%S}"
     checkpoint_path = out_dir / f"compact_{run_stamp}_checkpoint.json"
     results = []
-    for index, topic in enumerate(TOPICS, 1):
-        print(f"[{index}/{len(TOPICS)}] {topic}", flush=True)
-        result = run_topic(topic, voice_samples)
+    quick = os.getenv("EVAL_QUICK", "").lower() in {"1", "true", "yes"}
+    topics = TOPICS[:1] if quick else TOPICS
+    for index, topic in enumerate(topics, 1):
+        print(f"[{index}/{len(topics)}] {topic}", flush=True)
+        result = run_topic(topic, voice_samples, quick=quick)
         results.append(result)
         checkpoint_path.write_text(
             json.dumps({"created_at": datetime.now().isoformat(), "results": results}, ensure_ascii=False, indent=2),
