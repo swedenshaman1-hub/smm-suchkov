@@ -83,12 +83,19 @@ def run_topic(topic: str, voice_samples: str) -> dict:
     if warnings:
         post = telegram_team.polish(topic, post, API_KEY, voice_samples=voice_samples, issues=warnings)
     internal_audits = []
-    for _ in range(2):
+    for audit_attempt in range(3):
         audit = telegram_team.audit_final(topic, post, API_KEY)
         internal_audits.append(audit)
-        if audit.get("accepted"):
+        if audit.get("accepted") or audit_attempt == 2:
             break
         post = telegram_team.rewrite_final(topic, post, audit, API_KEY, voice_samples=voice_samples)
+    technical_errors = telegram_team.validate_post(post)
+    if technical_errors:
+        repaired = telegram_team.polish(
+            topic, post, API_KEY, voice_samples=voice_samples,
+            issues=["Исправь техническую незавершённость: " + item for item in technical_errors],
+        )
+        post = repaired if not telegram_team.validate_post(repaired) else selected
     return {
         "topic": topic, "post": post, "editor": review,
         "internal_audits": internal_audits, "evaluation": evaluate(topic, post),

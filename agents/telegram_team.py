@@ -398,8 +398,8 @@ def rewrite_final(topic: str, text: str, audit: dict, api_key: str, voice_sample
             + voice_samples
         )
     return gemini_call(
-        api_key, MODEL, FINAL_REWRITER_PROMPT, user_msg,
-        max_tokens=6000, temperature=0.45, disable_thinking=False,
+        api_key, FAST_MODEL, FINAL_REWRITER_PROMPT, user_msg,
+        max_tokens=2600, temperature=0.45, disable_thinking=True,
     ).strip()
 
 

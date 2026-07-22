@@ -501,9 +501,9 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
 
         final_audit = None
-        for audit_attempt in range(2):
+        for audit_attempt in range(3):
             final_audit = await _run_blocking(telegram_team.audit_final, topic, polished, GEMINI_API_KEY)
-            if final_audit.get("accepted"):
+            if final_audit.get("accepted") or audit_attempt == 2:
                 break
             await msg.reply_text("Игорь — финальный аудит нашёл остаточную шаблонность, переписываю точечно...")
             polished = await _run_blocking(
