@@ -324,6 +324,20 @@ DENYLIST_PHRASES = [
     "внутренний прокурор", "ты сам себе тюрьма", "соматотерапевт", "соматический терапевт", "соматическая терапия", "деконструкция",
 ]
 
+BRAND_BOUNDARY_PATTERNS = [
+    re.compile(r"\bсоматическ\w*\s+терапевт\w*\b", re.IGNORECASE),
+    re.compile(r"\bсоматотерапевт\w*\b", re.IGNORECASE),
+    re.compile(r"\bsomatic\s+therapist\b", re.IGNORECASE),
+]
+
+
+def find_brand_boundary_violations(text: str) -> list[str]:
+    """Return forbidden therapist positioning that must never reach delivery."""
+    violations = []
+    for pattern in BRAND_BOUNDARY_PATTERNS:
+        violations.extend(match.group(0) for match in pattern.finditer(text or ""))
+    return list(dict.fromkeys(violations))
+
 # "Тело как система тревоги" — отдельная семья приёмов, где тело в любой форме "сообщает"
 # читателю что-то (кричит/сигналит/взывает/достучаться/докричаться/требует внимания) или
 # называется "самым честным свидетелем/проводником". Ловим по корню слова через regex, а не

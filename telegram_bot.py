@@ -599,6 +599,17 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             if humanizer.has_forbidden_punctuation(new_ig):
                 new_ig = await _run_blocking(humanizer.fix_punctuation_style, new_ig, topic, GEMINI_API_KEY)
 
+            brand_violations = (
+                humanizer.find_brand_boundary_violations(new_tg)
+                + humanizer.find_brand_boundary_violations(new_ig)
+            )
+            if brand_violations:
+                await msg.reply_text(
+                    "Останавливаюсь: тональная правка сохранила запрещённое терапевтическое позиционирование "
+                    f"({', '.join(dict.fromkeys(brand_violations))}). Текст не отправлен."
+                )
+                return
+
             if not _looks_like_real_post(new_tg) or not _looks_like_real_post(new_ig):
                 await msg.reply_text(
                     "Что-то пошло не так при тональной переработке — результат не похож на готовый "
@@ -969,6 +980,17 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
         full_ig_text = ig_post_content + "\n\n" + "\n\n".join(
             f"{label}:\n{content}" for label, content in ig_other_sections.items()
         )
+
+        brand_violations = (
+            humanizer.find_brand_boundary_violations(r_human["telegram_humanized"])
+            + humanizer.find_brand_boundary_violations(full_ig_text)
+        )
+        if brand_violations:
+            await msg.reply_text(
+                "Останавливаюсь: после всех правок в пакете осталось запрещённое терапевтическое "
+                f"позиционирование ({', '.join(dict.fromkeys(brand_violations))}). Пакет не отправлен."
+            )
+            return
 
         # Шлюз 6 — повторная смысловая проверка ПОСЛЕ очеловечивания. Даша могла случайно
         # вернуть категоричность, новую метафору или перенос вины, работая над живостью —
