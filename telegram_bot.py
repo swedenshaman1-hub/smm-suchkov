@@ -1551,10 +1551,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif intent == "post":
         # Убираем ключевые слова-команды из темы если они в начале
         topic = text
-        for prefix in ["напиши пост про ", "напиши пост о ", "создай пост про ", "создай пост о ",
+        for prefix in ["напиши пост на тему: ", "создай пост на тему: ", "пост на тему: ",
+                        "напиши пост на тему ", "создай пост на тему ", "пост на тему ",
+                        "напиши пост про ", "напиши пост о ", "создай пост про ", "создай пост о ",
                         "напиши пост ", "создай пост ", "пост про ", "пост о ", "пост "]:
             if topic.lower().startswith(prefix):
                 topic = topic[len(prefix):]
+                topic = topic.lstrip(" :—–-\t")
                 break
         _store_topic(context.user_data, "text_post", topic)
         await update.message.reply_text(f"Запускаю пост по теме:\n«{topic}»")
