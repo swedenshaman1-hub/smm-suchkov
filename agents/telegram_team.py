@@ -11,6 +11,18 @@ from agents import memory_utils
 
 MODEL = "gemini-2.5-flash"
 
+# This is a hard brand boundary, not a stylistic preference. Keep it in the
+# shared context so every editorial role sees the same positioning rule.
+BRAND_BOUNDARY = """ЖЁСТКОЕ БРЕНДОВОЕ ОГРАНИЧЕНИЕ:
+Не позиционируй Дмитрия как «соматического терапевта» или «соматотерапевта».
+Не строй пост вокруг терапевтической или диагностической роли, лечения,
+исцеления или клинической услуги. Если исходный материал использует такую
+рамку, перенеси только наблюдение или смысл, а роль замени на авторский
+подход Дмитрия, практику, движение, внимание или опыт — без ложного обещания.
+Не маскируй запрещённую роль синонимами. Если тема держится только на ней,
+верни предупреждение редактору и предложи заменить смысловой угол.
+"""
+
 RESEARCHER_PROMPT = """Ты — Нина, исследователь аудитории Telegram-канала Дмитрия Сучкова.
 Твоя работа — дать автору фактическую опору, а не придумать психологический портрет читателя.
 
@@ -142,7 +154,7 @@ def build_voice_samples(posts: list, limit: int = 5) -> str:
 def research(topic: str, api_key: str) -> str:
     memory = memory_utils.load("analyst")
     context = memory_utils.build_context(memory, topic)
-    return gemini_call(api_key, MODEL, RESEARCHER_PROMPT + context,
+    return gemini_call(api_key, MODEL, RESEARCHER_PROMPT + BRAND_BOUNDARY + context,
                        f"Тема поста: «{topic}»", max_tokens=1800, temperature=0.45,
                        disable_thinking=True)
 
@@ -151,7 +163,7 @@ def strategize(topic: str, research_note: str, api_key: str) -> str:
     memory = memory_utils.load("strategist")
     context = memory_utils.build_context(memory, topic)
     user_msg = f"Тема: «{topic}»\n\nИсследовательская записка Нины:\n{research_note}"
-    return gemini_call(api_key, MODEL, STRATEGIST_PROMPT + context, user_msg,
+    return gemini_call(api_key, MODEL, STRATEGIST_PROMPT + BRAND_BOUNDARY + context, user_msg,
                        max_tokens=2600, temperature=0.8, disable_thinking=True)
 
 
@@ -169,7 +181,7 @@ def write(topic: str, research_note: str, strategy: str, api_key: str,
             "\n\nОБРАЗЦЫ РЕАЛЬНЫХ ПУБЛИКАЦИЙ КАНАЛА — используй только ритм, степень разговорности "
             "и способ обращения. Не копируй фразы, сюжеты, утверждения и ошибки:\n" + voice_samples
         )
-    return gemini_call(api_key, MODEL, WRITER_PROMPT + context, user_msg,
+    return gemini_call(api_key, MODEL, WRITER_PROMPT + BRAND_BOUNDARY + context, user_msg,
                        max_tokens=3500, temperature=0.85, disable_thinking=True)
 
 
@@ -177,7 +189,7 @@ def review(topic: str, strategy: str, variants: str, api_key: str) -> dict:
     memory = memory_utils.load("editor")
     context = memory_utils.build_context(memory, topic)
     user_msg = f"Тема: «{topic}»\n\nСтратегия:\n{strategy}\n\nТри варианта:\n{variants}"
-    text = gemini_call(api_key, MODEL, EDITOR_PROMPT + context, user_msg,
+    text = gemini_call(api_key, MODEL, EDITOR_PROMPT + BRAND_BOUNDARY + context, user_msg,
                        max_tokens=1200, temperature=0.25, disable_thinking=True)
     first = text.strip().splitlines()[0].upper() if text.strip() else ""
     letter_match = re.search(r"ВАРИАНТ\s*:\s*([АБВ])", first)
@@ -199,7 +211,7 @@ def polish(topic: str, text: str, api_key: str, voice_samples: str = "", issues:
         )
     if issues:
         user_msg += "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- " + "\n- ".join(issues)
-    return gemini_call(api_key, MODEL, VOICE_PROMPT + context, user_msg,
+    return gemini_call(api_key, MODEL, VOICE_PROMPT + BRAND_BOUNDARY + context, user_msg,
                        max_tokens=2200, temperature=0.35, disable_thinking=True).strip()
 
 
@@ -235,6 +247,8 @@ def validate_post(text: str) -> list[str]:
     # 900–1800 is the editorial target; 3800 is the hard delivery guardrail.
     if len(clean) > 3800:
         errors.append("текст длиннее 3800 знаков")
+    if re.search(r"\bсоматическ\w*\s+терапевт\w*\b|\bсоматотерапевт\w*\b|\bsomatic\s+therapist\b", clean, re.IGNORECASE):
+        errors.append("нарушена брендовая граница: позиционирование как соматического терапевта")
     if re.search(r"(?:^|\n)\s*(ВАРИАНТ|РЕШЕНИЕ|КОММЕНТАРИЙ)\b", clean, re.IGNORECASE):
         errors.append("в тексте осталась служебная разметка")
     if clean and clean[-1] not in ".!?…»\")":
@@ -254,6 +268,7 @@ def quality_warnings(text: str) -> list[str]:
         "убери штамп «позволь себе»": r"\bпозволь(?:те)?\s+себе\b",
         "убери штамп «в современном мире»": r"\bв\s+современном\s+мире\b",
         "не используй метафору мозга-стратега или мозга-тактика как факт": r"\bмозг\b.{0,100}\b(?:стратег|тактик)\w*",
+        "не позиционируй Дмитрия как соматического терапевта": r"\b(?:соматическ\w*\s+терапевт\w*|соматотерапевт\w*|somatic\s+therapist)\b",
     }
     lowered = clean.lower()
     for message, pattern in patterns.items():
