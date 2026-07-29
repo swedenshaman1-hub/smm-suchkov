@@ -28,6 +28,22 @@ MODE_LABELS = {
     COMMERCIAL: "коммерческий материал",
 }
 
+# A bounded council for each mode. Required notebooks are always queried;
+# these are the only additional advisers invited automatically.
+DEFAULT_OPTIONAL_NOTEBOOKS = {
+    EDITORIAL: (),
+    BRAND: (
+        "smm05a_positioning",
+        "smm07_brand_architecture",
+        "smm08_creator_system",
+    ),
+    COMMERCIAL: (
+        "smm05a_positioning",
+        "smm07_brand_architecture",
+        "smm05b_distribution",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class AgentSpec:
@@ -109,7 +125,7 @@ AGENTS = (
     AgentSpec(
         "writer",
         "Маша Лебедева",
-        "Три самостоятельных Telegram-черновика",
+        "Варианты и единственная окончательная сборка Telegram-текста",
         30,
         TASK_MODES,
     ),
@@ -123,7 +139,7 @@ AGENTS = (
     AgentSpec(
         "editor",
         "Игорь Орлов",
-        "Выбор версии, логика, новизна, доказательность и этика",
+        "Выбор версии и не более трёх обязательных содержательных правок",
         40,
         TASK_MODES,
     ),
@@ -144,14 +160,14 @@ AGENTS = (
     AgentSpec(
         "voice",
         "Даша Козлова",
-        "Голос Дмитрия, естественность, отсутствие AI-штампов",
+        "Короткие рекомендации по голосу; не переписывает готовый текст",
         50,
         TASK_MODES,
     ),
     AgentSpec(
         "publisher",
         "Света Громова",
-        "Финальная комплектация и публикация после подтверждения",
+        "Технический шлюз длины, разметки и брендовых ограничений",
         60,
         TASK_MODES,
     ),
@@ -242,10 +258,10 @@ NOTEBOOKS = (
         "smm04_ethics",
         "SMM-04 — Психология влияния и этика — Robert Cialdini",
         "ethics",
-        TASK_MODES,
+        (BRAND, COMMERCIAL),
         ("editor", "offer_architect"),
         "ef84c490-11c3-4b6a-b41a-bde6bd07864f",
-        required_modes=TASK_MODES,
+        required_modes=(COMMERCIAL,),
     ),
     NotebookSpec(
         "smm05a_positioning",
@@ -418,18 +434,34 @@ def notebooks_for_agents(
 def route_summary(text: str, explicit_mode: str | None = None) -> str:
     route = route_for(text, explicit_mode)
     required = ", ".join(nb.key for nb in route.required_notebooks)
+    active_optional_keys = set(DEFAULT_OPTIONAL_NOTEBOOKS[route.mode])
     optional_ready = ", ".join(
-        nb.key for nb in route.optional_notebooks if nb.resolved_id()
+        nb.key
+        for nb in route.optional_notebooks
+        if nb.key in active_optional_keys and nb.resolved_id()
     ) or "нет"
     optional_missing = ", ".join(
-        nb.key for nb in route.optional_notebooks if not nb.resolved_id()
+        nb.key
+        for nb in route.optional_notebooks
+        if nb.key in active_optional_keys and not nb.resolved_id()
     ) or "нет"
-    chain = " → ".join(agent.name for agent in route.agents if agent.stage <= 60)
+    # /post is the default workflow shown to the user. Instagram specialists,
+    # planning and community roles are available to /pack and other commands,
+    # but listing them here made the ordinary Telegram route look as if every
+    # agent rewrote the same text.
+    telegram_keys = {
+        "researcher", "strategist", "writer", "editor", "voice", "publisher"
+    }
+    if route.mode == COMMERCIAL:
+        telegram_keys.update({"marketer", "offer_architect"})
+    chain = " → ".join(
+        agent.name for agent in route.agents if agent.key in telegram_keys
+    )
     return (
         f"Режим: {MODE_LABELS[route.mode]}\n"
         f"Рабочая цепочка: {chain}\n"
         f"Обязательные блокноты: {required}\n"
-        f"Дополнительные подключены: {optional_ready}\n"
+        f"Дополнительные советники этого прогона: {optional_ready}\n"
         f"Ожидают ID: {optional_missing}"
     )
 
@@ -451,8 +483,9 @@ def team_manifest() -> str:
         "ЕДИНЫЙ РЕЕСТР SMM-КОМАНДЫ\n"
         "Режимы: editorial=экспертный/рефлексивный пост без продажи; "
         "brand=позиционирование; commercial=оффер/продажа.\n"
-        "Блокноты дают рекомендации только назначенным агентам; "
-        "финальное решение остаётся за агентом и редактором.\n\n"
+        "Блокноты дают сырьё только назначенным агентам. Нина отвечает за факты, "
+        "Артём за угол, Игорь выбирает и ставит правки, Даша только советует по "
+        "голосу, Маша один раз собирает финал, Света проверяет технику.\n\n"
         "АГЕНТЫ:\n"
         + "\n".join(agent_lines)
         + "\n\nБЛОКНОТЫ:\n"

@@ -310,35 +310,10 @@ def _query_prompt(topic: str, adviser_role: str) -> str:
     )
 
 
-_OPTIONAL_KEYS = {
-    team_registry.EDITORIAL: (
-        "smm02c_human_text",
-        "smm09_hooks",
-        "smm11_educational_clarity",
-    ),
-    team_registry.BRAND: (
-        "smm02c_human_text",
-        "smm05a_positioning",
-        "smm07_brand_architecture",
-        "smm09_hooks",
-        "smm11_educational_clarity",
-        "smm08_creator_system",
-        "smm10_founder_stories",
-    ),
-    team_registry.COMMERCIAL: (
-        "smm05a_positioning",
-        "smm07_brand_architecture",
-        "smm09_hooks",
-        "smm10_founder_stories",
-        "smm05b_distribution",
-    ),
-}
-
-
 def _selected_notebooks(
     route: team_registry.TeamRoute,
 ) -> tuple[team_registry.NotebookSpec, ...]:
-    optional_keys = set(_OPTIONAL_KEYS[route.mode])
+    optional_keys = set(team_registry.DEFAULT_OPTIONAL_NOTEBOOKS[route.mode])
     return tuple(
         notebook
         for notebook in route.notebooks
@@ -413,7 +388,8 @@ def build_topic_context(
     answers: dict[str, str] = {}
     required_errors: list[str] = []
     skipped_errors: list[str] = list(skipped_unconfigured)
-    workers = min(3, len(prompts))
+    configured_workers = int(os.environ.get("NOTEBOOKLM_WORKERS", "5"))
+    workers = min(max(1, configured_workers), len(prompts))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(_query_one, notebook, prompts[notebook.key], cookies): notebook

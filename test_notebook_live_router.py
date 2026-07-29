@@ -9,19 +9,18 @@ class NotebookLiveRouterTests(unittest.TestCase):
         selected = notebook_live._selected_notebooks(route)
         keys = {nb.key for nb in selected}
 
-        self.assertLessEqual(len(selected), 9)
+        self.assertEqual(len(selected), 5)
         self.assertNotIn("hormozi_1", keys)
         self.assertNotIn("smm05a_positioning", keys)
-        self.assertTrue(
+        self.assertEqual(
+            keys,
             {
                 "smm02a_audience",
                 "smm03a_angles",
                 "smm03b_dramaturgy",
-                "smm04_ethics",
                 "smm06_voice",
                 "smm12_ethical_boundaries",
-            }
-            <= keys
+            },
         )
 
     def test_commercial_selection_includes_sales_and_ethics(self):

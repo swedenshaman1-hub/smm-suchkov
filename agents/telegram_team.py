@@ -179,6 +179,36 @@ VOICE_PROMPT = """Ты — Даша, хранитель голоса Дмитр�
 неестественную гладкость и фразы, которые трудно произнести вслух. Сохрани тезис, факты, сцену, композицию,
 длину и финальный смысл. Не добавляй новых метафор, диагнозов и утверждений. Верни только готовый пост."""
 
+VOICE_NOTES_PROMPT = """Ты — Даша, консультант по голосу Дмитрия Сучкова.
+Ты не переписываешь текст и не добавляешь новые идеи. Твоя задача — передать автору
+не более трёх точных стилистических настроек: где фраза звучит неестественно,
+слишком гладко, назидательно или не похожа на живую речь Дмитрия.
+
+Каждая настройка должна указывать конкретный фрагмент или свойство текста.
+Не обсуждай стратегию, факты, этику и композицию — за них отвечают другие роли.
+Если серьёзных стилевых проблем нет, напиши одной строкой:
+ГОЛОС: СОХРАНИТЬ КАК ЕСТЬ
+"""
+
+FINAL_ASSEMBLY_PROMPT = """Ты — Маша, единственный владелец окончательного текста.
+Игорь уже выбрал черновик и указал содержательные правки. Даша дала только
+стилистические настройки. Собери один окончательный Telegram-пост и больше не
+передавай его другим авторам на переписывание.
+
+Приоритеты:
+1. Сохрани выбранный тезис и устрани замечания Игоря по существу.
+2. Примени настройки Даши только к языку и ритму; не меняй ими смысл.
+3. Не добавляй факты, причины, сцены, метафоры и личный опыт, которых нет во входе.
+4. Один тезис, поступательное развитие, финал без диагноза и поучения.
+5. 900–1550 знаков с пробелами; абсолютный максимум — 1750.
+
+Верни только готовый пост без заголовка, отчёта, вариантов и комментариев."""
+
+LENGTH_EDITOR_PROMPT = """Ты — технический редактор. Сожми готовый Telegram-пост
+до 1100–1650 знаков с пробелами, сохранив центральный тезис, ход мысли и финал.
+Убирай повторы, вводные слова и второстепенные примеры. Не добавляй новых фактов,
+причин, метафор, советов или служебных комментариев. Верни только готовый пост."""
+
 REPAIR_PROMPT = """Ты — Маша, автор, который исправляет один уже выбранный Telegram-пост по замечаниям редактора.
 Верни один цельный готовый пост без заголовка «Вариант», комментариев и объяснений.
 
@@ -375,6 +405,118 @@ def review(
     }
 
 
+def advise_voice(
+    topic: str, text: str, api_key: str, voice_samples: str = "",
+    notebook_context: str = "",
+) -> str:
+    """Return bounded style notes; the voice role never rewrites the post."""
+    memory = memory_utils.load("humanizer")
+    context = memory_utils.build_context(memory, topic)
+    user_msg = f"Тема: «{topic}»\n\nВыбранный черновик:\n{text}"
+    if voice_samples:
+        user_msg += (
+            "\n\nОбразцы реальной речи Дмитрия — сравни только ритм, лексику и "
+            "степень прямоты, ничего не копируй:\n" + voice_samples
+        )
+    system = (
+        VOICE_NOTES_PROMPT + BRAND_BOUNDARY
+        + _notebook_context("voice", notebook_context) + context
+    )
+    return gemini_call(
+        api_key, MODEL, system, user_msg,
+        max_tokens=500, temperature=0.2, disable_thinking=True,
+    ).strip()
+
+
+def assemble_final(
+    topic: str,
+    strategy: str,
+    selected_draft: str,
+    editor_notes: str,
+    voice_notes: str,
+    api_key: str,
+    voice_samples: str = "",
+    issues: list[str] | None = None,
+    notebook_context: str = "",
+) -> str:
+    """One author owns the final text; critics supply notes but never rewrite."""
+    memory = memory_utils.load("copywriter")
+    context = memory_utils.build_context(memory, topic)
+    user_msg = (
+        f"Тема: «{topic}»\n\nУтверждённая стратегия:\n{strategy}\n\n"
+        f"Выбранный черновик:\n{selected_draft}\n\n"
+        f"Решение и правки Игоря:\n{editor_notes}\n\n"
+        f"Настройки голоса Даши:\n{voice_notes}"
+    )
+    if issues:
+        user_msg += (
+            "\n\nАвтоматическая проверка нашла конкретные дефекты. Устрани их, "
+            "не меняя владельца текста и не создавая новый смысл:\n- "
+            + "\n- ".join(issues)
+        )
+    if voice_samples:
+        user_msg += (
+            "\n\nОбразцы реальной речи — используй только ритм и естественность, "
+            "не копируй содержание:\n" + voice_samples
+        )
+    system = (
+        FINAL_ASSEMBLY_PROMPT + BRAND_BOUNDARY
+        + _notebook_context("writer", notebook_context) + context
+    )
+    return gemini_call(
+        api_key, MODEL, system, user_msg,
+        max_tokens=1700, temperature=0.4, disable_thinking=True,
+    ).strip()
+
+
+def fit_length(topic: str, text: str, api_key: str) -> str:
+    """Mechanical one-shot compression; length alone must never kill a run."""
+    return gemini_call(
+        api_key,
+        MODEL,
+        LENGTH_EDITOR_PROMPT + BRAND_BOUNDARY,
+        f"Тема: «{topic}»\n\nТекст для сокращения:\n{text}",
+        max_tokens=1200,
+        temperature=0.1,
+        disable_thinking=True,
+    ).strip()
+
+
+def enforce_length(text: str, max_chars: int = 1850) -> str:
+    """Last-resort deterministic fit that keeps the opening and conclusion."""
+    clean = text.strip()
+    if len(clean) <= max_chars:
+        return clean
+    sentences = re.findall(
+        r".+?[.!?…](?:[»\")]+)?(?=\s|$)",
+        clean,
+        flags=re.DOTALL,
+    )
+    if len(sentences) >= 2:
+        conclusion = sentences[-1].strip()
+        budget = max_chars - len(conclusion) - 2
+        kept: list[str] = []
+        used = 0
+        for sentence in sentences[:-1]:
+            normalized = " ".join(sentence.split())
+            addition = len(normalized) + (1 if kept else 0)
+            if used + addition > budget:
+                break
+            kept.append(normalized)
+            used += addition
+        candidate = " ".join(kept + [conclusion]).strip()
+        if 350 <= len(candidate) <= max_chars:
+            return candidate
+    prefix = clean[:max_chars]
+    boundary = max(
+        prefix.rfind("."),
+        prefix.rfind("!"),
+        prefix.rfind("?"),
+        prefix.rfind("…"),
+    )
+    return prefix[: boundary + 1].strip() if boundary >= 350 else prefix.rstrip() + "…"
+
+
 def repair(topic: str, strategy: str, text: str, feedback: str, api_key: str,
            voice_samples: str = "", notebook_context: str = "") -> str:
     """Repair one selected draft instead of generating three more variants."""
@@ -566,6 +708,35 @@ def quality_warnings(text: str) -> list[str]:
     if len(re.findall(r"\bвнутренн\w*\b", lowered)) >= 5:
         warnings.append("убери навязчивый повтор слова «внутренний» и оставь одно точное наблюдение")
     return warnings
+
+
+def blocking_quality_warnings(text: str) -> list[str]:
+    """Separate safety/brand defects from subjective style preferences.
+
+    Style warnings are useful input to the single final author, but must not
+    start an endless rewrite loop. Only claims that can mislead or violate the
+    brand boundary remain delivery blockers.
+    """
+    blocking_markers = (
+        "скрытый мотив",
+        "истинной причине",
+        "неподтверждённый механизм",
+        "без источника",
+        "недоказанную",
+        "не приписывай мозгу",
+        "метафору мозга-стратега",
+        "телесную реакцию",
+        "не объявляй наблюдение",
+        "не объявляй реакцию",
+        "не доказывай глубину встречи",
+        "сигналом установленного механизма",
+        "не позиционируй Дмитрия",
+    )
+    return [
+        warning
+        for warning in quality_warnings(text)
+        if any(marker in warning for marker in blocking_markers)
+    ]
 
 
 def strategy_warnings(text: str) -> list[str]:

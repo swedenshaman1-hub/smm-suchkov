@@ -583,117 +583,108 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         selected = telegram_team.extract_variant(variants, editorial["variant"])
         draft_warnings = telegram_team.quality_warnings(selected)
         if draft_warnings:
-            editorial["accepted"] = False
             editorial["review"] += (
                 "\n\nАвтоматические замечания к выбранному варианту:\n- "
                 + "\n- ".join(draft_warnings)
             )
 
-        if not editorial["accepted"]:
+        if not editorial["accepted"] or draft_warnings:
             await msg.reply_text(
-                "Игорь нашёл существенную правку. Маша дорабатывает только "
-                "выбранный вариант, не генерируя ещё три черновика..."
-            )
-            selected = await _run_blocking(
-                telegram_team.repair, topic, strategy_output, selected,
-                editorial["review"], GEMINI_API_KEY,
-                voice_samples=voice_samples,
-                notebook_context=(
-                    notebook_contexts.for_agents("writer", "editor", "voice")
-                ),
+                "Игорь выбрал один вариант и передал Маше только обязательные "
+                "содержательные правки."
             )
 
-        await msg.reply_text("Даша — точечно настраиваю текст под голос Дмитрия, не меняя мысль...")
-        selected_warnings = telegram_team.quality_warnings(selected)
-        polished = await _run_blocking(
-            telegram_team.polish, topic, selected, GEMINI_API_KEY,
-            voice_samples=voice_samples, issues=selected_warnings,
+        await msg.reply_text(
+            "Даша — даю Маше короткие настройки голоса, не переписывая текст..."
+        )
+        voice_notes = await _run_blocking(
+            telegram_team.advise_voice, topic, selected, GEMINI_API_KEY,
+            voice_samples=voice_samples,
             notebook_context=notebook_contexts.for_agents("voice"),
         )
 
-        remaining_warnings = telegram_team.quality_warnings(polished)
-        if remaining_warnings:
-            await msg.reply_text("Даша — убираю оставшиеся шаблоны и смысловые повторы...")
-            polished = await _run_blocking(
-                telegram_team.polish, topic, polished, GEMINI_API_KEY,
-                voice_samples=voice_samples, issues=remaining_warnings,
-                notebook_context=notebook_contexts.for_agents("voice"),
-            )
-
-        polished_errors = telegram_team.validate_post(polished)
-        selected_errors = telegram_team.validate_post(selected)
-        if polished_errors:
-            logger.warning("Voice pass rejected by deterministic checks: %s", "; ".join(polished_errors))
-            if not selected_errors:
-                polished = selected
-                await msg.reply_text("Стилистическая правка не прошла техническую проверку — оставляю одобренный текст без неё.")
-            else:
-                await msg.reply_text(
-                    "Останавливаюсь: итог не прошёл техническую проверку ("
-                    + "; ".join(polished_errors) + "). Нужна более конкретная тема или тезис."
-                )
-                return
-
         await msg.reply_text(
-            "Света — финально проверяю честность, человечность и отсутствие "
-            "недоказанных психологических объяснений..."
+            "Маша — один раз собираю окончательный текст из выбранного варианта, "
+            "правок Игоря и настроек Даши..."
         )
-        gate_context = notebook_contexts.for_agents("editor", "voice")
-        final_gate = await _run_blocking(
-            telegram_team.final_review, topic, strategy_output, polished,
+        final_context = notebook_contexts.for_agents("writer", "voice")
+        polished = await _run_blocking(
+            telegram_team.assemble_final,
+            topic,
+            strategy_output,
+            selected,
+            editorial["review"],
+            voice_notes,
             GEMINI_API_KEY,
-            previous_review=editorial["review"],
-            notebook_context=gate_context,
+            voice_samples=voice_samples,
+            issues=draft_warnings,
+            notebook_context=final_context,
         )
-        if not final_gate["accepted"]:
+
+        assembly_blockers = (
+            telegram_team.validate_post(polished)
+            + telegram_team.blocking_quality_warnings(polished)
+        )
+        non_length_blockers = [
+            issue for issue in assembly_blockers if "длиннее 1900" not in issue
+        ]
+        if non_length_blockers:
             await msg.reply_text(
-                "Финальный контроль отклонил конструкцию текста. Маша пишет "
-                "один чистый вариант с нуля, без старых метафор..."
+                "Автопроверка нашла конкретный смысловой или брендовый дефект. "
+                "Маша исправляет его один раз; новых авторов и новых вариантов не будет..."
             )
             polished = await _run_blocking(
-                telegram_team.clean_rewrite,
+                telegram_team.assemble_final,
                 topic,
                 strategy_output,
                 polished,
-                final_gate["review"],
+                editorial["review"],
+                voice_notes,
                 GEMINI_API_KEY,
                 voice_samples=voice_samples,
-                notebook_context=gate_context,
+                issues=non_length_blockers,
+                notebook_context=final_context,
             )
-            rewrite_blockers = (
-                telegram_team.validate_post(polished)
-                + telegram_team.quality_warnings(polished)
+
+        if len(polished.strip()) > 1900:
+            await msg.reply_text(
+                "Света — текст вышел за лимит. Сокращаю автоматически без смены "
+                "темы и без нового редакционного круга..."
             )
-            if rewrite_blockers:
-                await msg.reply_text(
-                    "Останавливаюсь: чистый вариант не прошёл жёсткую "
-                    "проверку (" + "; ".join(rewrite_blockers) + ")."
+            fitted = await _run_blocking(
+                telegram_team.fit_length, topic, polished, GEMINI_API_KEY
+            )
+            if len(fitted.strip()) <= 1900:
+                polished = fitted
+            else:
+                selected_is_safe = not (
+                    telegram_team.validate_post(selected)
+                    + telegram_team.blocking_quality_warnings(selected)
                 )
-                return
-            final_gate = await _run_blocking(
-                telegram_team.final_review, topic, strategy_output, polished,
-                GEMINI_API_KEY,
-                previous_review=final_gate["review"],
-                notebook_context=gate_context,
-            )
-            if not final_gate["accepted"]:
-                await msg.reply_text(
-                    "Останавливаюсь: после чистого переписывания финальный "
-                    "редактор всё ещё не принимает текст. Брак не отправляю.\n\n"
-                    + final_gate["review"]
+                polished = (
+                    selected
+                    if selected_is_safe
+                    else telegram_team.enforce_length(fitted)
                 )
-                return
 
         delivery_blockers = (
             telegram_team.validate_post(polished)
-            + telegram_team.quality_warnings(polished)
+            + telegram_team.blocking_quality_warnings(polished)
         )
         if delivery_blockers:
             await msg.reply_text(
-                "Останавливаюсь перед отправкой: жёсткий финальный шлюз нашёл "
-                "оставшиеся дефекты (" + "; ".join(delivery_blockers) + ")."
+                "Останавливаюсь только из-за смыслового, фактического или брендового "
+                "риска — не из-за вкусовой редактуры: "
+                + "; ".join(delivery_blockers) + "."
             )
             return
+
+        style_notes = telegram_team.quality_warnings(polished)
+        if style_notes:
+            logger.info(
+                "Non-blocking style notes after bounded assembly: %s",
+                "; ".join(style_notes),
+            )
 
         memory_utils.register_published(
             topic,
@@ -1449,7 +1440,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Gemini: {'подключён' if GEMINI_API_KEY else 'не настроен'}\n"
         f"• Gemini Notebook: {notebook_live.status_line()}\n"
         f"• единый реестр: {team_registry.registry_status()}\n"
-        "• /post: 5 ролей, только Telegram\n"
+        "• /post: один автор финала, только Telegram\n"
         "• /pack: полный Telegram + Instagram\n"
         f"• последний режим: {mode}\n"
         f"• команда сейчас занята: {busy}"

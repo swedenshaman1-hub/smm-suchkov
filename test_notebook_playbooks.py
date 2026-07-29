@@ -47,6 +47,38 @@ class NotebookPlaybooksTest(unittest.TestCase):
         errors = telegram_team.validate_post("Фраза. " * 320)
         self.assertTrue(any("1900" in item for item in errors))
 
+    def test_length_fallback_keeps_post_deliverable(self):
+        long_text = (
+            "Первая мысль задаёт направление. "
+            + "Каждый следующий абзац развивает её без новой причины. " * 45
+            + "Финал возвращает читателя к исходному выбору."
+        )
+
+        fitted = telegram_team.enforce_length(long_text)
+
+        self.assertLessEqual(len(fitted), 1850)
+        self.assertGreaterEqual(len(fitted), 350)
+        self.assertTrue(fitted.endswith((".", "!", "?", "…")))
+
+    def test_style_warning_does_not_become_endless_blocker(self):
+        text = (
+            "Давайте честно: важный разговор иногда хочется отложить. "
+            + "Но сам факт паузы ещё не объясняет её причину. " * 12
+        )
+
+        self.assertTrue(telegram_team.quality_warnings(text))
+        self.assertFalse(telegram_team.blocking_quality_warnings(text))
+
+    def test_hidden_motive_remains_delivery_blocker(self):
+        text = (
+            "Вы на самом деле просто маскируете страх. "
+            + "Остальной текст развивает эту мысль. " * 14
+        )
+
+        blockers = telegram_team.blocking_quality_warnings(text)
+
+        self.assertTrue(any("скрытый мотив" in item for item in blockers))
+
 
 if __name__ == "__main__":
     unittest.main()
