@@ -130,6 +130,33 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertFalse(telegram_team.structural_warnings(topic, text))
 
+    def test_second_person_limit_is_editorial_not_delivery_blocker(self):
+        topic = "Как заметить, что собственный аргумент больше не убеждает"
+        text = (
+            "Вы продолжаете объяснять свою позицию. Вы повторяете доводы. "
+            "Ваш голос звучит уверенно, но вы уже замечаете противоречие. "
+            "Вы можете проверить, какой ваш аргумент перестал работать и почему."
+        )
+
+        warnings = telegram_team.structural_warnings(topic, text)
+        blockers = telegram_team.blocking_structural_warnings(topic, text)
+
+        self.assertTrue(any("обращения" in item for item in warnings))
+        self.assertFalse(blockers)
+
+    def test_invented_context_remains_structural_delivery_blocker(self):
+        topic = "Как заметить, что собственный аргумент больше не убеждает"
+        text = (
+            "На совещании коллеги слушают презентацию проекта. "
+            "Аргумент перестаёт убеждать раньше, чем заканчивается фраза."
+        )
+
+        blockers = telegram_team.blocking_structural_warnings(topic, text)
+
+        self.assertTrue(any("коллег" in item for item in blockers))
+        self.assertTrue(any("презентац" in item for item in blockers))
+        self.assertTrue(any("проект" in item for item in blockers))
+
     @patch("agents.telegram_team.gemini_call", return_value="Короткий готовый текст.")
     def test_length_editor_receives_structural_issues(self, gemini_mock):
         result = telegram_team.fit_length(

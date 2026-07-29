@@ -1017,6 +1017,27 @@ def structural_warnings(topic: str, text: str) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def blocking_structural_warnings(topic: str, text: str) -> list[str]:
+    """Return only structural defects that make publication unsafe.
+
+    Second-person frequency, generic AI phrasing and an overly directive
+    ending are editorial preferences. They should be corrected when possible,
+    but must not stop an otherwise safe post after the bounded cleanup pass.
+    Invented settings, people and bodily reactions remain hard blockers because
+    they present details not supplied by the user as if they were real.
+    """
+    editorial_only_prefixes = (
+        "сократи обращения",
+        "убери абстрактные AI-формулы",
+        "убери назидательный финал",
+    )
+    return [
+        warning
+        for warning in structural_warnings(topic, text)
+        if not warning.startswith(editorial_only_prefixes)
+    ]
+
+
 def strategy_warnings(text: str) -> list[str]:
     """Hard signals that make a strategy unsafe before drafting starts."""
     lowered = text.lower()

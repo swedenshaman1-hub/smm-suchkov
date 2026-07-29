@@ -723,12 +723,12 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 )
 
         polished = telegram_team.clean_human_surface(topic, polished)
-        delivery_blockers = list(dict.fromkeys(
+        delivery_issues = list(dict.fromkeys(
             telegram_team.validate_post(polished)
             + telegram_team.blocking_quality_warnings(polished)
             + telegram_team.structural_warnings(topic, polished)
         ))
-        if delivery_blockers:
+        if delivery_issues:
             await msg.reply_text(
                 "Света — после сокращения остался формальный дефект. "
                 "Выполняю одну техническую очистку без нового редакционного круга..."
@@ -738,17 +738,17 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 topic,
                 polished,
                 GEMINI_API_KEY,
-                issues=delivery_blockers,
+                issues=delivery_issues,
             )
             polished = telegram_team.clean_human_surface(topic, polished)
             if len(polished) > 1900:
                 polished = telegram_team.enforce_length(polished)
-            delivery_blockers = list(dict.fromkeys(
-                telegram_team.validate_post(polished)
-                + telegram_team.blocking_quality_warnings(polished)
-                + telegram_team.structural_warnings(topic, polished)
-            ))
 
+        delivery_blockers = list(dict.fromkeys(
+            telegram_team.validate_post(polished)
+            + telegram_team.blocking_quality_warnings(polished)
+            + telegram_team.blocking_structural_warnings(topic, polished)
+        ))
         if delivery_blockers:
             await msg.reply_text(
                 "Останавливаюсь только из-за смыслового, фактического или брендового "
@@ -757,7 +757,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
             return
 
-        style_notes = telegram_team.quality_warnings(polished)
+        style_notes = list(dict.fromkeys(
+            telegram_team.quality_warnings(polished)
+            + telegram_team.structural_warnings(topic, polished)
+        ))
         if style_notes:
             logger.info(
                 "Non-blocking style notes after bounded assembly: %s",
