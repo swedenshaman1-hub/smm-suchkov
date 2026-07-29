@@ -9,7 +9,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
         selected = notebook_live._selected_notebooks(route)
         keys = {nb.key for nb in selected}
 
-        self.assertLessEqual(len(selected), 8)
+        self.assertLessEqual(len(selected), 9)
         self.assertNotIn("hormozi_1", keys)
         self.assertNotIn("smm05a_positioning", keys)
         self.assertTrue(
@@ -19,6 +19,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
                 "smm03b_dramaturgy",
                 "smm04_ethics",
                 "smm06_voice",
+                "smm12_ethical_boundaries",
             }
             <= keys
         )
@@ -31,6 +32,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("hormozi_1", keys)
         self.assertIn("hormozi_2", keys)
         self.assertIn("smm04_ethics", keys)
+        self.assertIn("smm12_ethical_boundaries", keys)
         self.assertIn("smm06_voice", keys)
 
     def test_context_is_delivered_only_to_assigned_agents(self):
@@ -40,12 +42,14 @@ class NotebookLiveRouterTests(unittest.TestCase):
                 "audience:smm02a_audience": "Язык аудитории",
                 "offer:hormozi_1": "Каркас оффера",
                 "ethics:smm04_ethics": "Этическая проверка",
+                "ethics:smm12_ethical_boundaries": "Проверка этических границ",
                 "voice:smm06_voice": "Голос Дмитрия",
             },
             selected_notebooks=(
                 "smm02a_audience",
                 "hormozi_1",
                 "smm04_ethics",
+                "smm12_ethical_boundaries",
                 "smm06_voice",
             ),
         )
@@ -57,6 +61,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertNotIn("Каркас оффера", researcher_context)
         self.assertIn("Каркас оффера", offer_context)
         self.assertIn("Этическая проверка", offer_context)
+        self.assertIn("Проверка этических границ", offer_context)
         self.assertNotIn("Голос Дмитрия", offer_context)
 
 

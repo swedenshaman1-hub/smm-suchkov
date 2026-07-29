@@ -41,7 +41,23 @@ class TeamRegistryTests(unittest.TestCase):
 
         self.assertEqual(route.mode, team_registry.COMMERCIAL)
         self.assertTrue({"hormozi_1", "hormozi_2"} <= required_keys)
+        self.assertIn("smm12_ethical_boundaries", required_keys)
         self.assertIn("offer_architect", agent_keys)
+
+    def test_sandel_ethics_is_required_and_routed_to_reviewers(self):
+        route = team_registry.route_for("Напиши пост о выборе и ответственности")
+        notebook = next(
+            nb
+            for nb in route.notebooks
+            if nb.key == "smm12_ethical_boundaries"
+        )
+
+        self.assertTrue(notebook.is_required(team_registry.EDITORIAL))
+        self.assertEqual(notebook.adviser_role, "ethics")
+        self.assertTrue(
+            {"editor", "instagram_editor", "comment_analyst"}
+            <= set(notebook.agents)
+        )
 
     def test_unconfigured_optional_notebooks_do_not_block(self):
         clean_env = dict(os.environ)

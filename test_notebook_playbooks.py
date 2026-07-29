@@ -12,8 +12,12 @@ class NotebookPlaybooksTest(unittest.TestCase):
             self.assertGreater(len(context), 900)
 
     def test_snapshot_has_expected_sources(self):
-        self.assertEqual(len(notebook_playbooks.NOTEBOOK_SOURCES), 6)
+        self.assertEqual(len(notebook_playbooks.NOTEBOOK_SOURCES), 7)
         self.assertIn("SMM-06", notebook_playbooks.NOTEBOOK_SOURCES["voice"][0])
+        self.assertIn(
+            "SMM-12",
+            notebook_playbooks.NOTEBOOK_SOURCES["ethical_boundaries"][0],
+        )
 
     def test_repetitive_metaphors_are_flagged(self):
         warnings = telegram_team.quality_warnings(

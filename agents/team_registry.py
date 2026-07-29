@@ -336,6 +336,16 @@ NOTEBOOKS = (
         "ea6ff04b-afbf-4780-b2b5-3f6d5f6daf66",
         env_var="NOTEBOOKLM_SMM11_ID",
     ),
+    NotebookSpec(
+        "smm12_ethical_boundaries",
+        "SMM-12 — Этические границы коммуникации — Michael Sandel",
+        "ethics",
+        TASK_MODES,
+        ("editor", "instagram_editor", "offer_architect", "comment_analyst"),
+        "d49008c1-61a0-4ab1-99c2-a4a9c06f6c38",
+        env_var="NOTEBOOKLM_SMM12_ID",
+        required_modes=TASK_MODES,
+    ),
 )
 
 
