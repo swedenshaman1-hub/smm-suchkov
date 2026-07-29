@@ -388,7 +388,7 @@ def build_topic_context(
     answers: dict[str, str] = {}
     required_errors: list[str] = []
     skipped_errors: list[str] = list(skipped_unconfigured)
-    configured_workers = int(os.environ.get("NOTEBOOKLM_WORKERS", "5"))
+    configured_workers = int(os.environ.get("NOTEBOOKLM_WORKERS", "6"))
     workers = min(max(1, configured_workers), len(prompts))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {

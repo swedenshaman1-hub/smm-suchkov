@@ -116,6 +116,13 @@ AGENTS = (
         TASK_MODES,
     ),
     AgentSpec(
+        "hook_editor",
+        "Кирилл Романов",
+        "Пять честных входов и выбор одного хука без переписывания поста",
+        24,
+        TASK_MODES,
+    ),
+    AgentSpec(
         "marketer",
         "Олег Савин",
         "Цель, площадка, распространение и измеримый результат",
@@ -330,9 +337,10 @@ NOTEBOOKS = (
         "SMM-09 — Хуки и удержание внимания — Guy Calloway / 1of10",
         "hooks",
         TASK_MODES,
-        ("writer", "editor", "instagram_writer"),
+        ("hook_editor", "writer", "editor", "instagram_writer"),
         "fad9e5d4-4765-40f6-b7e7-5700dd8a966e",
         env_var="NOTEBOOKLM_SMM09_ID",
+        required_modes=TASK_MODES,
     ),
     NotebookSpec(
         "smm10_founder_stories",
@@ -450,7 +458,8 @@ def route_summary(text: str, explicit_mode: str | None = None) -> str:
     # but listing them here made the ordinary Telegram route look as if every
     # agent rewrote the same text.
     telegram_keys = {
-        "researcher", "strategist", "writer", "editor", "voice", "publisher"
+        "researcher", "strategist", "hook_editor", "writer", "editor",
+        "voice", "publisher"
     }
     if route.mode == COMMERCIAL:
         telegram_keys.update({"marketer", "offer_architect"})
@@ -484,8 +493,8 @@ def team_manifest() -> str:
         "Режимы: editorial=экспертный/рефлексивный пост без продажи; "
         "brand=позиционирование; commercial=оффер/продажа.\n"
         "Блокноты дают сырьё только назначенным агентам. Нина отвечает за факты, "
-        "Артём за угол, Игорь выбирает и ставит правки, Даша только советует по "
-        "голосу, Маша один раз собирает финал, Света проверяет технику.\n\n"
+        "Артём за угол, Кирилл за хук, Игорь выбирает и ставит правки, Даша только "
+        "советует по голосу, Маша один раз собирает финал, Света проверяет технику.\n\n"
         "АГЕНТЫ:\n"
         + "\n".join(agent_lines)
         + "\n\nБЛОКНОТЫ:\n"

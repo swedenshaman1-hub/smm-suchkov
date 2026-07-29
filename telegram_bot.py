@@ -122,7 +122,7 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
 SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
     "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
-    "last_pipeline_mode",
+    "last_pipeline_mode", "last_hook_brief",
 ]
 
 # Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
@@ -558,6 +558,23 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                         )
                         return
 
+        hook_brief = user_data.get("last_hook_brief", "") if reuse_previous else ""
+        if hook_brief:
+            await msg.reply_text(
+                "Кирилл — сохраняю ранее выбранную механику хука для точечной правки."
+            )
+        else:
+            await msg.reply_text(
+                "Кирилл — создаю пять честных входов по SMM-09 и выбираю один хук..."
+            )
+            hook_brief = await _run_blocking(
+                telegram_team.design_hook,
+                topic,
+                strategy_output,
+                GEMINI_API_KEY,
+                notebook_context=notebook_contexts.for_agents("hook_editor"),
+            )
+
         await msg.reply_text("Маша — пишу три действительно разных варианта...")
         variants = await _run_blocking(
             telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
@@ -573,12 +590,14 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                     else ""
                 )
             ),
+            hook_brief=hook_brief,
         )
 
         await msg.reply_text("Игорь — выбираю лучший вариант и проверяю смысл...")
         editorial = await _run_blocking(
             telegram_team.review, topic, strategy_output, variants, GEMINI_API_KEY,
             notebook_context=notebook_contexts.for_agents("editor"),
+            hook_brief=hook_brief,
         )
         selected = telegram_team.extract_variant(variants, editorial["variant"])
         draft_warnings = telegram_team.quality_warnings(selected)
@@ -604,8 +623,8 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         )
 
         await msg.reply_text(
-            "Маша — один раз собираю окончательный текст из выбранного варианта, "
-            "правок Игоря и настроек Даши..."
+            "Маша — один раз собираю окончательный текст из выбранного хука, "
+            "варианта, правок Игоря и настроек Даши..."
         )
         final_context = notebook_contexts.for_agents("writer", "voice")
         polished = await _run_blocking(
@@ -616,6 +635,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             editorial["review"],
             voice_notes,
             GEMINI_API_KEY,
+            hook_brief=hook_brief,
             voice_samples=voice_samples,
             issues=draft_warnings,
             notebook_context=final_context,
@@ -631,6 +651,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             topic,
             polished,
             GEMINI_API_KEY,
+            hook_brief=hook_brief,
             notebook_context=notebook_contexts.for_agents("editor"),
         )
         assembly_blockers = (
@@ -656,6 +677,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 editorial["review"],
                 voice_notes,
                 GEMINI_API_KEY,
+                hook_brief=hook_brief,
                 voice_samples=voice_samples,
                 issues=correction_issues,
                 notebook_context=final_context,
@@ -722,6 +744,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_post_topic"] = topic
         user_data["last_analysis"] = research_note
         user_data["last_strategy"] = strategy_output
+        user_data["last_hook_brief"] = hook_brief
         user_data["last_commercial_blueprint"] = commercial_blueprint
         user_data["last_final_tg"] = polished
         user_data["last_final_ig_post"] = ""

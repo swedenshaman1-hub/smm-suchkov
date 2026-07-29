@@ -59,17 +59,26 @@ class TeamRegistryTests(unittest.TestCase):
             <= set(notebook.agents)
         )
 
-    def test_unconfigured_optional_notebooks_do_not_block(self):
+    def test_optional_notebooks_do_not_block(self):
         clean_env = dict(os.environ)
         clean_env.pop("NOTEBOOKLM_SMM09_ID", None)
         with patch.dict(os.environ, clean_env, clear=True):
             route = team_registry.route_for("Напиши спокойный экспертный пост")
 
             self.assertIn(
-                "smm09_hooks",
+                "smm02c_human_text",
                 {nb.key for nb in route.optional_notebooks},
             )
             self.assertFalse(route.missing_required)
+
+    def test_hook_notebook_and_editor_are_required_in_every_text_mode(self):
+        for mode in team_registry.TASK_MODES:
+            route = team_registry.route_for("", explicit_mode=mode)
+            required_keys = {nb.key for nb in route.required_notebooks}
+            agent_keys = {agent.key for agent in route.agents}
+
+            self.assertIn("smm09_hooks", required_keys)
+            self.assertIn("hook_editor", agent_keys)
 
     def test_registry_manifest_is_shared_and_explicit(self):
         manifest = team_registry.team_manifest()
