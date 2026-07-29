@@ -25,6 +25,33 @@ def _notebook_context(role: str, live_context: str = "") -> str:
         return notebook_playbooks.context_for(role)
     return ""
 
+
+def _epistemic_guard(topic: str) -> str:
+    """Add a shared reasoning contract for ambiguous causal questions."""
+    if not re.search(
+        r"\b(?:почему|из-за чего|означает ли|значит ли|доказывает ли)\b",
+        (topic or "").lower(),
+    ):
+        return ""
+    return """
+
+═══ ПРОТОКОЛ НЕОДНОЗНАЧНОЙ ПРИЧИННОЙ ТЕМЫ ═══
+Тема спрашивает о причине или о значении наблюдения. Если исследовательская
+записка не содержит отдельного проверяемого источника, запрещено выбирать одну
+скрытую психологическую причину и выдавать её за ответ.
+
+Обязательная логика:
+1. Назови наблюдение, которое действительно дано в теме.
+2. Прямо отдели его от вывода: само наблюдение ещё не доказывает одну трактовку.
+3. Не объясняй его мозгом, телом, психикой, защитным механизмом, привычным
+   паттерном, страхом, репутацией или потребностью без источника.
+4. Вместо меню домыслов дай два или три проверяемых признака или вопроса,
+   которые помогают различить варианты в конкретной ситуации.
+5. Если тема спрашивает «означает ли это», ответ должен явно сказать:
+   «не обязательно», «не всегда» или «само по себе это не доказывает».
+═══ КОНЕЦ ПРОТОКОЛА ═══
+"""
+
 # This is a hard brand boundary, not a stylistic preference. Keep it in the
 # shared context so every editorial role sees the same positioning rule.
 BRAND_BOUNDARY = """ЖЁСТКОЕ БРЕНДОВОЕ ОГРАНИЧЕНИЕ:
@@ -425,6 +452,7 @@ def strategize(
     user_msg = f"Тема: «{topic}»\n\nИсследовательская записка Нины:\n{research_note}"
     system = (
         STRATEGIST_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("strategist", notebook_context) + context
     )
     return gemini_call(api_key, MODEL, system, user_msg,
@@ -468,6 +496,7 @@ def repair_strategy(
     )
     system = (
         STRATEGY_REPAIR_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("strategist", notebook_context) + context
     )
     return gemini_call(
@@ -498,6 +527,7 @@ def write(topic: str, research_note: str, strategy: str, api_key: str,
         )
     system = (
         WRITER_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("writer", notebook_context) + context
     )
     return gemini_call(api_key, MODEL, system, user_msg,
@@ -517,6 +547,7 @@ def review(
         )
     system = (
         EDITOR_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("editor", notebook_context) + context
     )
     text = gemini_call(api_key, MODEL, system, user_msg,
@@ -592,6 +623,7 @@ def assemble_final(
         )
     system = (
         FINAL_ASSEMBLY_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("writer", notebook_context) + context
     )
     return gemini_call(
@@ -612,6 +644,7 @@ def audit_final_structure(
     context = memory_utils.build_context(memory, topic)
     system = (
         STRUCTURE_AUDIT_PROMPT + BRAND_BOUNDARY
+        + _epistemic_guard(topic)
         + _notebook_context("editor", notebook_context) + context
     )
     user_msg = f"Исходная тема: «{topic}»\n\nСобранный пост:\n{text}"
@@ -652,7 +685,7 @@ def fit_length(
     return gemini_call(
         api_key,
         MODEL,
-        LENGTH_EDITOR_PROMPT + BRAND_BOUNDARY,
+        LENGTH_EDITOR_PROMPT + BRAND_BOUNDARY + _epistemic_guard(topic),
         user_msg,
         max_tokens=850,
         temperature=0.1,
@@ -897,6 +930,8 @@ def quality_warnings(text: str) -> list[str]:
         "не доказывай глубину встречи желанием тишины": r"\bтишин\w*\b.{0,100}\bсигнал\w*.{0,80}\b(?:глуб|подлин|насыщ)\w*",
         "не используй метафору мозга-стратега или мозга-тактика как факт": r"\bмозг\b.{0,100}\b(?:стратег|тактик)\w*",
         "не приписывай мозгу недоказанную обработку и сортировку впечатлений": r"\bмозг\w*\b.{0,180}\b(?:обработ|сортир|интегр|встраив|архив|индекс|перерабат|созда[её]т\s+нов\w*\s+связ)\w*",
+        "не приписывай мозгу и телу адаптацию как причину без источника": r"\b(?:мозг(?:\s+и\s+тело)?|тело(?:\s+и\s+мозг)?)\b.{0,180}\bадаптир\w*",
+        "не объявляй защитный механизм или инерцию привычки причиной без источника": r"\b(?:защитн\w*\s+механизм|инерци\w*\s+привычк)\b",
         "убери недоказанную «переработку/интеграцию» впечатлений или опыта": r"\b(?:переработ|интегр|встраив|ассимил)\w*.{0,100}\b(?:впечатлен|опыт|информац|памят)\w*",
         "убери компьютерно-логистическую метафору внутренней работы": r"\b(?:обмен\s+данн|распак|архивир|индексир|сохран\w*\s+файл|внутренн\w*\s+склад|разлож\w*\s+по\s+папк)\w*",
         "не объявляй реакцию естественной потребностью без источника": r"\bестественн\w*.{0,80}\bпотребност\w*",
@@ -963,6 +998,49 @@ def structural_warnings(topic: str, text: str) -> list[str]:
             "сократи обращения «вы/ты» до пяти: текст не должен разыгрывать читателя как персонажа"
         )
 
+    answer_question = bool(
+        re.search(r"\b(?:означает ли|значит ли|доказывает ли)\b", topic_lower)
+    )
+    explicit_uncertainty = bool(
+        re.search(
+            r"\b(?:не\s+обязательно|не\s+всегда|"
+            r"сам[оа]\s+по\s+себе.{0,70}\bне\s+(?:доказыва|означа|подтвержда|говорит)|"
+            r"одн(?:ого|ой)\s+этого\s+недостаточно)\b",
+            lowered,
+            re.DOTALL,
+        )
+    )
+    if answer_question and not explicit_uncertainty:
+        warnings.append(
+            "ответь на вопрос «означает ли это» без ложной уверенности: "
+            "само наблюдение не доказывает одну трактовку"
+        )
+
+    unsupported_hidden_motive = (
+        r"\b(?:защит\w*.{0,55}\b(?:лиц|правот|репутац|образ)\w*|"
+        r"удержан\w*.{0,30}\bправот\w*|сохранен\w*.{0,30}\bобраз\w*|"
+        r"не\s+выглядеть\s+непоследовательн\w*|"
+        r"сомнен\w*.{0,50}\bкомпетентност\w*)\b"
+    )
+    motive_markers = r"\b(?:лиц|правот|репутац|образ|непоследовательн|компетентност)\w*"
+    if (
+        not re.search(motive_markers, topic_lower)
+        and re.search(unsupported_hidden_motive, lowered, re.DOTALL)
+    ):
+        warnings.append(
+            "не подменяй тему недоказанным мотивом защиты лица, правоты или репутации"
+        )
+
+    unsupported_mind_body_mechanism = (
+        r"\b(?:мозг(?:\s+и\s+тело)?|тело(?:\s+и\s+мозг)?)\b.{0,180}"
+        r"\b(?:адаптир|выстраива|защитн\w*\s+механизм|"
+        r"отвеча\w*\s+(?:сво\w*\s+)?(?:реакци|ответ)|инерци\w*\s+привычк)\w*"
+    )
+    if re.search(unsupported_mind_body_mechanism, lowered, re.DOTALL):
+        warnings.append(
+            "убери недоказанный механизм мозга и тела: во входных данных нет источника для этой причины"
+        )
+
     invented_contexts = {
         r"\b(?:перед\s+групп|групп[а-я]*)\b": ("групп", "убери выдуманную группу"),
         r"\bколлег\w*\b": ("коллег", "убери выдуманных коллег"),
@@ -1006,6 +1084,21 @@ def structural_warnings(topic: str, text: str) -> list[str]:
         )
 
     opening = " ".join(clean.split())[:220].lower()
+    opening_event = re.match(r"^(?:вы|ты)\s+([а-яё-]+)\b", opening)
+    if opening_event and not re.match(r"^(?:если|например|бывает)\b", opening):
+        verb = opening_event.group(1)
+        if verb not in {"были", "могли", "хотели", "стали"}:
+            verb_stem = re.sub(r"(?:лись|ли|ла|л)$", "", verb)
+            looks_like_past_event = (
+                len(verb_stem) >= 3
+                and verb != verb_stem
+                and verb_stem not in topic_lower
+            )
+            if looks_like_past_event:
+                warnings.append(
+                    "убери выдуманное событие из жизни читателя во втором лице: "
+                    "пользователь не сообщал, что это произошло"
+                )
     if re.match(
         r"^(?:вы|ты)\s+(?:стоите|сидите|заходите|начинаете|входите)\b",
         opening,

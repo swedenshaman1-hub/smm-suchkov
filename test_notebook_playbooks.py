@@ -157,6 +157,53 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertTrue(any("презентац" in item for item in blockers))
         self.assertTrue(any("проект" in item for item in blockers))
 
+    def test_hidden_reputation_motive_is_rejected_when_topic_does_not_supply_it(self):
+        topic = (
+            "Момент, когда продолжаешь объяснять своё решение другим "
+            "и понимаешь, что сам уже в него не веришь"
+        )
+        text = (
+            "Ответ сейчас скорее защита своего лица, чем поиск истины. "
+            "Слова нужны, чтобы удержать правоту, сохранить образ и не выглядеть "
+            "непоследовательным перед другими."
+        )
+
+        blockers = telegram_team.blocking_structural_warnings(topic, text)
+
+        self.assertTrue(any("мотивом защиты" in item for item in blockers))
+
+    def test_second_rejected_post_exposes_causal_and_invented_scene_defects(self):
+        topic = (
+            "Почему иногда после правильного решения не приходит облегчение "
+            "и означает ли это, что решение было ошибочным"
+        )
+        text = (
+            "Вы удалили сотни старых контактов из телефона. "
+            "Мозг и тело адаптируются к привычному порядку и выстраивают вокруг "
+            "него защитные механизмы. Поэтому дискомфорт после решения является "
+            "инерцией привычки и частью процесса отпускания."
+        )
+
+        blockers = telegram_team.blocking_structural_warnings(topic, text)
+
+        self.assertTrue(any("означает ли это" in item for item in blockers))
+        self.assertTrue(any("мозга и тела" in item for item in blockers))
+        self.assertTrue(any("выдуманное событие" in item for item in blockers))
+
+    def test_ambiguous_question_passes_with_explicit_limit_of_inference(self):
+        topic = (
+            "Почему иногда после правильного решения не приходит облегчение "
+            "и означает ли это, что решение было ошибочным"
+        )
+        text = (
+            "Облегчение после сложного решения приходит не всегда. Само по себе "
+            "его отсутствие не доказывает, что выбор был ошибочным. Полезнее "
+            "проверить, изменились ли факты, нарушены ли важные критерии и готов "
+            "ли человек принять цену выбранного решения."
+        )
+
+        self.assertFalse(telegram_team.blocking_structural_warnings(topic, text))
+
     @patch("agents.telegram_team.gemini_call", return_value="Короткий готовый текст.")
     def test_length_editor_receives_structural_issues(self, gemini_mock):
         result = telegram_team.fit_length(
