@@ -40,7 +40,7 @@ from agents import (
     instagram_writer, editor, instagram_editor,
     humanizer, publisher, offer_architect, team_architect, content_planner,
     community_manager, comment_analyst, channel_stats, channel_analyst,
-    instagram_stats, instagram_analyst
+    instagram_stats, instagram_analyst, instagram_messaging
 )
 from agents import memory_utils, notebook_live, team_registry
 from agents import telegram_team
@@ -1440,6 +1440,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Gemini: {'подключён' if GEMINI_API_KEY else 'не настроен'}\n"
         f"• Gemini Notebook: {notebook_live.status_line()}\n"
         f"• единый реестр: {team_registry.registry_status()}\n"
+        f"• Instagram Direct: {instagram_messaging.status_line()}\n"
         "• /post: один автор финала, только Telegram\n"
         "• /pack: полный Telegram + Instagram\n"
         f"• последний режим: {mode}\n"
@@ -2177,6 +2178,7 @@ def main():
     print(f"Gemini API: {'настроен' if GEMINI_API_KEY else 'не задан'}")
     print(f"NotebookLM: {notebook_live.status_line()}")
     print(f"Маршрутизатор: {team_registry.registry_status()}")
+    print(f"Instagram Direct: {instagram_messaging.status_line()}")
 
     persistence = PicklePersistence(filepath=os.path.join(os.path.dirname(__file__), "bot_state.pkl"))
     app = (
@@ -2220,8 +2222,12 @@ def main():
     app.job_queue.run_repeating(job_snapshot_subscribers, interval=24 * 60 * 60, first=30)
     app.job_queue.run_repeating(job_weekly_promptcheck, interval=7 * 24 * 60 * 60, first=60)
 
+    instagram_messaging.start_webhook_server()
     print("Бот запущен.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        instagram_messaging.stop_webhook_server()
 
 
 if __name__ == "__main__":

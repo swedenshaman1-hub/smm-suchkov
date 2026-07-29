@@ -80,3 +80,25 @@ ID новых блокнотов задаются переменными Railway
 допустимого. В обычном редакционном посте Чалдини не вызывается, потому что
 его функция там дублировала Sandel. Источники советуют редакторам и
 архитектору оффера, но не пишут финальный текст.
+
+## Прямое подключение Instagram
+
+Railway принимает webhook Meta без платного посредника по адресу
+`/instagram/webhook`. Автоматизация отвечает только после комментария или
+сообщения самого человека и соблюдает окно переписки Meta.
+
+Обязательные переменные Railway:
+
+- `IG_BUSINESS_ACCOUNT_ID`
+- `IG_ACCESS_TOKEN`
+- `IG_APP_SECRET`
+- `IG_WEBHOOK_VERIFY_TOKEN`
+- `IG_FREEBIE_URL`
+
+Необязательные настройки:
+
+- `IG_FREEBIE_KEYWORDS` — ключевые слова через запятую;
+- `IG_FREEBIE_CONFIRM_WORDS` — ответы в Direct через запятую;
+- `IG_COMMENT_PRIVATE_REPLY`, `IG_FOLLOW_FIRST_REPLY`,
+  `IG_FREEBIE_DELIVERY_REPLY` — тексты сообщений;
+- `IG_API_HOST` и `IG_GRAPH_API_VERSION` — адрес и версия официального API.

@@ -14,7 +14,10 @@ import requests
 
 from agents.memory_utils import _get_client
 
-GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
+def _graph_api_base() -> str:
+    host = os.getenv("IG_API_HOST", "https://graph.instagram.com").strip()
+    version = os.getenv("IG_GRAPH_API_VERSION", "v23.0").strip()
+    return f"{host.rstrip('/')}/{version.strip('/')}"
 
 
 def _config() -> tuple[str, str] | tuple[None, None]:
@@ -38,7 +41,7 @@ def fetch_recent_media(limit: int = 25) -> list:
 
     fields = "id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count"
     resp = requests.get(
-        f"{GRAPH_API_BASE}/{account_id}/media",
+        f"{_graph_api_base()}/{account_id}/media",
         params={"fields": fields, "limit": limit, "access_token": token},
         timeout=30,
     )
@@ -58,7 +61,7 @@ def fetch_media_insights(media_id: str, media_type: str) -> dict:
         metrics = "reach,impressions,saved"
 
     resp = requests.get(
-        f"{GRAPH_API_BASE}/{media_id}/insights",
+        f"{_graph_api_base()}/{media_id}/insights",
         params={"metric": metrics, "access_token": token},
         timeout=30,
     )
@@ -74,7 +77,7 @@ def fetch_follower_count() -> int | None:
         return None
 
     resp = requests.get(
-        f"{GRAPH_API_BASE}/{account_id}",
+        f"{_graph_api_base()}/{account_id}",
         params={"fields": "followers_count", "access_token": token},
         timeout=30,
     )
