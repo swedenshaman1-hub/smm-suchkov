@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agents import notebook_playbooks
 from agents import telegram_team
@@ -128,6 +129,20 @@ class NotebookPlaybooksTest(unittest.TestCase):
         )
 
         self.assertFalse(telegram_team.structural_warnings(topic, text))
+
+    @patch("agents.telegram_team.gemini_call", return_value="Короткий готовый текст.")
+    def test_length_editor_receives_structural_issues(self, gemini_mock):
+        result = telegram_team.fit_length(
+            "Тема",
+            "Длинный исходный текст.",
+            "test-key",
+            issues=["сократи обращения «вы/ты» до пяти"],
+        )
+
+        user_message = gemini_mock.call_args.args[3]
+        self.assertIn("сократи обращения", user_message)
+        self.assertLessEqual(gemini_mock.call_args.kwargs["max_tokens"], 900)
+        self.assertEqual(result, "Короткий готовый текст.")
 
 
 if __name__ == "__main__":

@@ -268,6 +268,10 @@ LENGTH_EDITOR_PROMPT = """Ты — технический редактор. Со
 Убирай повторы, вводные слова и второстепенные примеры. Не добавляй новых фактов,
 причин, метафор, советов или служебных комментариев. Первые одно или два
 предложения являются хуком: не ослабляй их напряжение и не заменяй экспозицией.
+Одновременно соблюдай все ограничения финала: не более пяти обращений вы, ты,
+ваш или твой; никаких придуманных обстоятельств и телесных реакций; никаких
+AI-формул; никакого назидательного призыва. Если замечания переданы отдельно,
+устрани каждое из них по существу.
 Верни только готовый пост."""
 
 STRUCTURE_AUDIT_PROMPT = """Ты — Игорь, выпускающий редактор. Проведи один
@@ -592,7 +596,7 @@ def assemble_final(
     )
     return gemini_call(
         api_key, MODEL, system, user_msg,
-        max_tokens=1700, temperature=0.4, disable_thinking=True,
+        max_tokens=900, temperature=0.4, disable_thinking=True,
     ).strip()
 
 
@@ -632,14 +636,25 @@ def audit_final_structure(
     }
 
 
-def fit_length(topic: str, text: str, api_key: str) -> str:
-    """Mechanical one-shot compression; length alone must never kill a run."""
+def fit_length(
+    topic: str,
+    text: str,
+    api_key: str,
+    issues: list[str] | None = None,
+) -> str:
+    """Mechanical bounded cleanup; length alone must never kill a run."""
+    user_msg = f"Тема: «{topic}»\n\nТекст для сокращения:\n{text}"
+    if issues:
+        user_msg += (
+            "\n\nОдновременно устрани эти формальные дефекты:\n- "
+            + "\n- ".join(issues)
+        )
     return gemini_call(
         api_key,
         MODEL,
         LENGTH_EDITOR_PROMPT + BRAND_BOUNDARY,
-        f"Тема: «{topic}»\n\nТекст для сокращения:\n{text}",
-        max_tokens=1200,
+        user_msg,
+        max_tokens=850,
         temperature=0.1,
         disable_thinking=True,
     ).strip()

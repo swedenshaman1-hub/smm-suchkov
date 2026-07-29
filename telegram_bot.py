@@ -693,8 +693,16 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 "Света — текст вышел за лимит. Сокращаю автоматически без смены "
                 "темы и без нового редакционного круга..."
             )
+            length_cleanup_issues = list(dict.fromkeys(
+                telegram_team.blocking_quality_warnings(polished)
+                + telegram_team.structural_warnings(topic, polished)
+            ))
             fitted = await _run_blocking(
-                telegram_team.fit_length, topic, polished, GEMINI_API_KEY
+                telegram_team.fit_length,
+                topic,
+                polished,
+                GEMINI_API_KEY,
+                issues=length_cleanup_issues,
             )
             fitted = telegram_team.clean_human_surface(topic, fitted)
             if len(fitted.strip()) <= 1900:
@@ -706,6 +714,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 selected_is_safe = not (
                     telegram_team.validate_post(selected_surface)
                     + telegram_team.blocking_quality_warnings(selected_surface)
+                    + telegram_team.structural_warnings(topic, selected_surface)
                 )
                 polished = (
                     selected_surface
@@ -719,6 +728,27 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             + telegram_team.blocking_quality_warnings(polished)
             + telegram_team.structural_warnings(topic, polished)
         ))
+        if delivery_blockers:
+            await msg.reply_text(
+                "Света — после сокращения остался формальный дефект. "
+                "Выполняю одну техническую очистку без нового редакционного круга..."
+            )
+            polished = await _run_blocking(
+                telegram_team.fit_length,
+                topic,
+                polished,
+                GEMINI_API_KEY,
+                issues=delivery_blockers,
+            )
+            polished = telegram_team.clean_human_surface(topic, polished)
+            if len(polished) > 1900:
+                polished = telegram_team.enforce_length(polished)
+            delivery_blockers = list(dict.fromkeys(
+                telegram_team.validate_post(polished)
+                + telegram_team.blocking_quality_warnings(polished)
+                + telegram_team.structural_warnings(topic, polished)
+            ))
+
         if delivery_blockers:
             await msg.reply_text(
                 "Останавливаюсь только из-за смыслового, фактического или брендового "
