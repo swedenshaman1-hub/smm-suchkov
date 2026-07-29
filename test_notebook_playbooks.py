@@ -79,6 +79,21 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertTrue(any("скрытый мотив" in item for item in blockers))
 
+    def test_human_surface_removes_topic_quotes_and_typographic_dashes(self):
+        topic = "Когда решение перестаёт быть твоим"
+        raw = (
+            "Когда решение перестаёт быть твоим\n"
+            "Ты говоришь: «Я по-прежнему уверен» — и слышишь фальшь."
+        )
+
+        clean = telegram_team.clean_human_surface(topic, raw)
+
+        self.assertFalse(clean.startswith(topic))
+        self.assertNotIn("«", clean)
+        self.assertNotIn("»", clean)
+        self.assertNotIn("—", clean)
+        self.assertIn("по-прежнему", clean)
+
 
 if __name__ == "__main__":
     unittest.main()

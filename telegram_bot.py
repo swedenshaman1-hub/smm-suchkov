@@ -621,17 +621,32 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             notebook_context=final_context,
         )
 
+        polished = telegram_team.clean_human_surface(topic, polished)
+        await msg.reply_text(
+            "Игорь — один раз проверяю, ведёт ли текст от момента к ясному выводу. "
+            "Нового редакционного круга не будет..."
+        )
+        structure_audit = await _run_blocking(
+            telegram_team.audit_final_structure,
+            topic,
+            polished,
+            GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("editor"),
+        )
         assembly_blockers = (
             telegram_team.validate_post(polished)
             + telegram_team.blocking_quality_warnings(polished)
         )
-        non_length_blockers = [
+        correction_issues = [
             issue for issue in assembly_blockers if "длиннее 1900" not in issue
         ]
-        if non_length_blockers:
+        if not structure_audit["accepted"]:
+            correction_issues.append(structure_audit["review"])
+
+        if correction_issues:
             await msg.reply_text(
-                "Автопроверка нашла конкретный смысловой или брендовый дефект. "
-                "Маша исправляет его один раз; новых авторов и новых вариантов не будет..."
+                "Финальный аудит нашёл конкретный дефект конструкции или смысла. "
+                "Маша исправляет его один раз; новых авторов и вариантов не будет..."
             )
             polished = await _run_blocking(
                 telegram_team.assemble_final,
@@ -642,9 +657,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 voice_notes,
                 GEMINI_API_KEY,
                 voice_samples=voice_samples,
-                issues=non_length_blockers,
+                issues=correction_issues,
                 notebook_context=final_context,
             )
+            polished = telegram_team.clean_human_surface(topic, polished)
 
         if len(polished.strip()) > 1900:
             await msg.reply_text(
@@ -654,19 +670,24 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             fitted = await _run_blocking(
                 telegram_team.fit_length, topic, polished, GEMINI_API_KEY
             )
+            fitted = telegram_team.clean_human_surface(topic, fitted)
             if len(fitted.strip()) <= 1900:
                 polished = fitted
             else:
+                selected_surface = telegram_team.clean_human_surface(
+                    topic, selected
+                )
                 selected_is_safe = not (
-                    telegram_team.validate_post(selected)
-                    + telegram_team.blocking_quality_warnings(selected)
+                    telegram_team.validate_post(selected_surface)
+                    + telegram_team.blocking_quality_warnings(selected_surface)
                 )
                 polished = (
-                    selected
+                    selected_surface
                     if selected_is_safe
                     else telegram_team.enforce_length(fitted)
                 )
 
+        polished = telegram_team.clean_human_surface(topic, polished)
         delivery_blockers = (
             telegram_team.validate_post(polished)
             + telegram_team.blocking_quality_warnings(polished)

@@ -201,6 +201,13 @@ FINAL_ASSEMBLY_PROMPT = """Ты — Маша, единственный влад�
 3. Не добавляй факты, причины, сцены, метафоры и личный опыт, которых нет во входе.
 4. Один тезис, поступательное развитие, финал без диагноза и поучения.
 5. 900–1550 знаков с пробелами; абсолютный максимум — 1750.
+6. Не повторяй тему как заголовок или первую строку.
+7. Условная сцена занимает максимум три предложения. Не придумывай профессию,
+   проект, партнёров, цифры, сроки, реплики и телесные реакции, которых нет во входе.
+8. Структура должна быть видна без подзаголовков: конкретный момент, смысловое
+   различение, ясный вывод или вопрос, который помогает читателю проверить себя.
+9. Не используй кавычки, типографские тире и декоративную пунктуацию. Пиши
+   обычными короткими предложениями, которые естественно произнести вслух.
 
 Верни только готовый пост без заголовка, отчёта, вариантов и комментариев."""
 
@@ -208,6 +215,27 @@ LENGTH_EDITOR_PROMPT = """Ты — технический редактор. Со
 до 1100–1650 знаков с пробелами, сохранив центральный тезис, ход мысли и финал.
 Убирай повторы, вводные слова и второстепенные примеры. Не добавляй новых фактов,
 причин, метафор, советов или служебных комментариев. Верни только готовый пост."""
+
+STRUCTURE_AUDIT_PROMPT = """Ты — Игорь, выпускающий редактор. Проведи один
+ограниченный аудит уже собранного поста. Не переписывай текст и не требуй
+идеальности. Проверь только конструкцию и честность:
+
+1. Тема не повторена как заголовок, и текст сразу начинает мысль.
+2. Есть ясное движение: конкретный момент, новое различение, понятный финал.
+3. Финал отвечает исходной теме и не отменяет её неожиданным противоположным выводом.
+4. Не придуманы профессия, проект, люди, цифры, сроки, цитаты, телесные реакции
+   или биографические подробности, которых пользователь не давал.
+5. Нет уверенного объяснения скрытой причины без источника.
+6. Читателю понятно, зачем он прочитал текст и что именно теперь может различить.
+7. Последнее предложение грамматически закончено, местоимения имеют ясный объект.
+
+Первая строка строго:
+АУДИТ: ПРОШЁЛ
+или
+АУДИТ: ИСПРАВИТЬ
+
+Если нужно исправить, дай не более трёх конкретных замечаний. Не предлагай
+новую тему, новую метафору или новый полный текст."""
 
 REPAIR_PROMPT = """Ты — Маша, автор, который исправляет один уже выбранный Telegram-пост по замечаниям редактора.
 Верни один цельный готовый пост без заголовка «Вариант», комментариев и объяснений.
@@ -469,6 +497,35 @@ def assemble_final(
     ).strip()
 
 
+def audit_final_structure(
+    topic: str,
+    text: str,
+    api_key: str,
+    notebook_context: str = "",
+) -> dict:
+    """One non-writing structural audit; it can trigger at most one correction."""
+    memory = memory_utils.load("editor")
+    context = memory_utils.build_context(memory, topic)
+    system = (
+        STRUCTURE_AUDIT_PROMPT + BRAND_BOUNDARY
+        + _notebook_context("editor", notebook_context) + context
+    )
+    review = gemini_call(
+        api_key,
+        MODEL,
+        system,
+        f"Исходная тема: «{topic}»\n\nСобранный пост:\n{text}",
+        max_tokens=700,
+        temperature=0.1,
+        disable_thinking=True,
+    ).strip()
+    first = review.splitlines()[0].upper() if review else ""
+    return {
+        "accepted": "АУДИТ: ПРОШЁЛ" in first,
+        "review": review,
+    }
+
+
 def fit_length(topic: str, text: str, api_key: str) -> str:
     """Mechanical one-shot compression; length alone must never kill a run."""
     return gemini_call(
@@ -480,6 +537,39 @@ def fit_length(topic: str, text: str, api_key: str) -> str:
         temperature=0.1,
         disable_thinking=True,
     ).strip()
+
+
+def clean_human_surface(topic: str, text: str) -> str:
+    """Remove AI-looking wrapper punctuation without damaging word hyphens."""
+    clean = text.strip()
+    clean = re.sub(
+        r"^\s*(?:#{1,6}\s*|\*{1,2})?(?:тема|заголовок)\s*:\s*",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    )
+    normalized_topic = (topic or "").strip()
+    if normalized_topic and clean.casefold().startswith(normalized_topic.casefold()):
+        clean = clean[len(normalized_topic):].lstrip(" \t\r\n:;,.!?—–-")
+
+    # Remove quotation glyphs and Markdown emphasis requested by the author.
+    clean = clean.translate(
+        str.maketrans({
+            "«": "", "»": "", "“": "", "”": "", "„": "", '"': "",
+        })
+    )
+    clean = clean.replace("**", "").replace("__", "")
+
+    # Preserve grammatical hyphens inside words, but remove typographic dashes
+    # and spaced minus signs that make generated Russian prose look artificial.
+    clean = re.sub(r"\s+[—–]\s+", ", ", clean)
+    clean = re.sub(r"\s+-\s+", ", ", clean)
+    clean = re.sub(r"\s*,\s*,+\s*", ", ", clean)
+    clean = re.sub(r"[ \t]+([,.;:!?])", r"\1", clean)
+    clean = re.sub(r"[ \t]{2,}", " ", clean)
+    clean = re.sub(r"\n[ \t]+", "\n", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean.strip()
 
 
 def enforce_length(text: str, max_chars: int = 1850) -> str:
