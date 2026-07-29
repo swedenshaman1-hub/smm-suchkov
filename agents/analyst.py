@@ -168,7 +168,12 @@ SYSTEM_PROMPT = """Ты — Нина Соколова, аналитик целе
 Только русский язык."""
 
 
-def run(topic: str, api_key: str, feedback: str = None) -> dict:
+def run(
+    topic: str,
+    api_key: str,
+    feedback: str = None,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
@@ -181,6 +186,14 @@ def run(topic: str, api_key: str, feedback: str = None) -> dict:
 
     if feedback:
         user_msg += f"\n\nВАЖНО: Другой агент прокомментировал:\n{feedback}\nУчти и скорректируй."
+
+    if notebook_context:
+        user_msg += (
+            "\n\nРЕКОМЕНДАЦИИ НАЗНАЧЕННЫХ NOTEBOOKLM-БЛОКНОТОВ:\n"
+            f"{notebook_context}\n\n"
+            "Это консультативный материал, а не готовый вывод. Не копируй его "
+            "слепо и не превращай маркетинговую гипотезу в психологический факт."
+        )
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 

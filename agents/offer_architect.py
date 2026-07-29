@@ -152,7 +152,13 @@ SYSTEM_PROMPT = """Ты — Виктор Самойлов, архитектор 
 Только русский язык."""
 
 
-def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> dict:
+def run(
+    product: str,
+    analyst_output: str,
+    api_key: str,
+    focus: str = None,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, product)
 
@@ -163,6 +169,14 @@ def run(product: str, analyst_output: str, api_key: str, focus: str = None) -> d
 
     if focus:
         user_msg += f"\n\nДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:\n{focus}"
+
+    if notebook_context:
+        user_msg += (
+            "\n\nРЕКОМЕНДАЦИИ НАЗНАЧЕННЫХ NOTEBOOKLM-БЛОКНОТОВ:\n"
+            f"{notebook_context}\n\n"
+            "Используй их как экспертную проверку. Не выдумывай свойства "
+            "продукта, цену, дедлайн, гарантию или результаты клиентов."
+        )
 
     user_msg += "\n\nПострой оффер по структуре из 8 разделов (0–8). Самопроверку по Хормози выполни до передачи."
 

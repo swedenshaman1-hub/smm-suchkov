@@ -223,8 +223,15 @@ SYSTEM_PROMPT = """Ты — Игорь Орлов, редактор Telegram-к�
 Только русский язык."""
 
 
-def run(topic: str, analyst_output: str, strategy_output: str,
-        copywriter_output: str, api_key: str, iteration: int = 1) -> dict:
+def run(
+    topic: str,
+    analyst_output: str,
+    strategy_output: str,
+    copywriter_output: str,
+    api_key: str,
+    iteration: int = 1,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
@@ -242,6 +249,14 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 Сначала пройди блок «СНАЧАЛА СТРАТЕГИЯ» — если стратегия не проходит эту проверку, зафиксируй это явно и не трать разбор на построчную правку текста, который всё равно нужно менять на уровне угла. Только если стратегия проходит — переходи к чеклисту по каждому варианту (стратегия, платформа, авторский голос, тест живого человека). Сравни варианты. Вынеси ВЕРДИКТ по каждому и ОБЩИЙ ВЕРДИКТ.
 
 ПЕРВОЙ строкой ответа, до начала разбора, укажи: «РЕКОМЕНДУЕМЫЙ ВАРИАНТ: А» или «РЕКОМЕНДУЕМЫЙ ВАРИАНТ: Б» (или «РЕКОМЕНДУЕМЫЙ ВАРИАНТ: НИ ОДИН — проблема в стратегии» если блок «сначала стратегия» не пройден) — с однострочным обоснованием. Это обязательно должно быть первой строкой, а не выводом в конце: если разбор обрежется по длине, решение всё равно должно быть зафиксировано."""
+
+    if notebook_context:
+        user_msg += (
+            "\n\nКОНТРОЛЬНЫЕ РЕКОМЕНДАЦИИ NOTEBOOKLM:\n"
+            + notebook_context
+            + "\n\nИспользуй их для проверки, но не принимай авторитет "
+            "блокнота вместо собственной редакторской аргументации."
+        )
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.6,
                                disable_thinking=True)

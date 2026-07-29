@@ -42,7 +42,7 @@ from agents import (
     community_manager, comment_analyst, channel_stats, channel_analyst,
     instagram_stats, instagram_analyst
 )
-from agents import memory_utils
+from agents import memory_utils, notebook_live, team_registry
 from agents import telegram_team
 
 CHANNEL_CHAT_ID = -1001800141714
@@ -426,6 +426,7 @@ class _StopPipeline(Exception):
 
 async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None):
     """Compact Telegram-only pipeline: research → angles → drafts → edit → voice."""
+    route = team_registry.route_for(topic)
     reuse_previous = bool(
         feedback and user_data.get("last_post_topic") == topic
         and user_data.get("last_analysis") and user_data.get("last_strategy")
@@ -433,7 +434,34 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
     try:
         await msg.reply_text(
             f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
-            "Пять ролей, один цикл содержательной доработки. Обычно 1–2 минуты."
+            f"Режим: {team_registry.MODE_LABELS[route.mode]}.\n"
+            "Сначала маршрутизатор выбирает релевантные NotebookLM-блокноты, "
+            "затем запускает редакционную команду. Обычно 2–4 минуты."
+        )
+
+        await msg.reply_text(
+            "NotebookLM — запрашиваю только назначенных этому режиму экспертов..."
+        )
+        try:
+            notebook_contexts = await _run_blocking(
+                notebook_live.build_topic_context, topic, route.mode
+            )
+        except notebook_live.NotebookLiveError as exc:
+            await msg.reply_text(
+                "Останавливаюсь до написания текста: живой маршрут через Gemini "
+                f"Notebook не прошёл.\n\nПричина: {exc}\n\n"
+                "Обычный Gemini вместо блокнотов скрытно не использую."
+            )
+            return
+        await msg.reply_text(
+            "NotebookLM — обязательные блокноты ответили. "
+            f"В маршрут вошли: {', '.join(notebook_contexts.selected_notebooks)}."
+            + (
+                "\nНеобязательные источники пока пропущены: "
+                + ", ".join(notebook_contexts.skipped_optional)
+                if notebook_contexts.skipped_optional
+                else ""
+            )
         )
 
         recent_posts = await _run_blocking(channel_stats.get_recent_posts, CHANNEL_CHAT_ID, 8)
@@ -442,15 +470,93 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         if reuse_previous:
             research_note = user_data["last_analysis"]
             strategy_output = user_data["last_strategy"]
+            commercial_blueprint = user_data.get("last_commercial_blueprint", "")
             await msg.reply_text("Сохраняю ранее выбранную стратегию и меняю только текст по твоей правке.")
         else:
             await msg.reply_text("Нина — собираю фактическую опору и живые ситуации...")
-            research_note = await _run_blocking(telegram_team.research, topic, GEMINI_API_KEY)
+            research_note = await _run_blocking(
+                telegram_team.research, topic, GEMINI_API_KEY,
+                notebook_contexts.for_agents("researcher"),
+            )
+
+            commercial_blueprint = ""
+            if route.mode == team_registry.COMMERCIAL:
+                await msg.reply_text(
+                    "Виктор — собираю честный коммерческий каркас без "
+                    "выдуманных обещаний и дефицита..."
+                )
+                offer_result = await _run_blocking(
+                    offer_architect.run,
+                    topic,
+                    research_note,
+                    GEMINI_API_KEY,
+                    notebook_context=(
+                        notebook_contexts.for_agents("offer_architect")
+                        + "\n\n"
+                        + notebook_contexts.ethics
+                        + "\n\n"
+                        + notebook_contexts.voice
+                    ),
+                )
+                commercial_blueprint = offer_result["offer"]
 
             await msg.reply_text("Артём — создаю пять разных смысловых углов и выбираю сильнейший...")
+            strategy_notebooks = notebook_contexts.for_agents("strategist")
+            if commercial_blueprint:
+                strategy_notebooks += (
+                    "\n\nКОММЕРЧЕСКИЙ КАРКАС ВИКТОРА:\n"
+                    + commercial_blueprint
+                )
             strategy_output = await _run_blocking(
-                telegram_team.strategize, topic, research_note, GEMINI_API_KEY
+                telegram_team.strategize, topic, research_note, GEMINI_API_KEY,
+                strategy_notebooks,
             )
+            strategy_issues = telegram_team.strategy_warnings(strategy_output)
+            if strategy_issues:
+                await msg.reply_text(
+                    "Артём использовал недоказанный психологический механизм. "
+                    "Перестраиваю смысловой угол до написания текста..."
+                )
+                strategy_output = await _run_blocking(
+                    telegram_team.repair_strategy,
+                    topic,
+                    research_note,
+                    strategy_output,
+                    strategy_issues,
+                    GEMINI_API_KEY,
+                    notebook_context=(
+                        notebook_contexts.for_agents("strategist") + "\n\n"
+                        + notebook_contexts.ethics
+                    ),
+                )
+                remaining_strategy_issues = telegram_team.strategy_warnings(
+                    strategy_output
+                )
+                if remaining_strategy_issues:
+                    await msg.reply_text(
+                        "Стратегия всё ещё назначает причину. Последний раз "
+                        "перевожу её в формат честного различения..."
+                    )
+                    strategy_output = await _run_blocking(
+                        telegram_team.repair_strategy,
+                        topic,
+                        research_note,
+                        strategy_output,
+                        remaining_strategy_issues,
+                        GEMINI_API_KEY,
+                        notebook_context=notebook_contexts.ethics,
+                    )
+                    final_strategy_issues = telegram_team.strategy_warnings(
+                        strategy_output
+                    )
+                    if final_strategy_issues:
+                        await msg.reply_text(
+                            "Останавливаюсь до написания поста: после двух "
+                            "исправлений стратегия всё ещё держится на "
+                            "недоказанном механизме ("
+                            + "; ".join(final_strategy_issues) + ")."
+                        )
+                        return
 
         await msg.reply_text("Маша — пишу три действительно разных варианта...")
         variants = await _run_blocking(
@@ -458,35 +564,51 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             feedback=feedback,
             previous_text=user_data.get("last_final_tg") if feedback else None,
             voice_samples=voice_samples,
+            notebook_context=(
+                notebook_contexts.for_agents("writer")
+                + (
+                    "\n\nКОММЕРЧЕСКИЙ КАРКАС ВИКТОРА:\n"
+                    + commercial_blueprint
+                    if commercial_blueprint
+                    else ""
+                )
+            ),
         )
 
         await msg.reply_text("Игорь — выбираю лучший вариант и проверяю смысл...")
         editorial = await _run_blocking(
-            telegram_team.review, topic, strategy_output, variants, GEMINI_API_KEY
+            telegram_team.review, topic, strategy_output, variants, GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("editor"),
         )
         selected = telegram_team.extract_variant(variants, editorial["variant"])
+        draft_warnings = telegram_team.quality_warnings(selected)
+        if draft_warnings:
+            editorial["accepted"] = False
+            editorial["review"] += (
+                "\n\nАвтоматические замечания к выбранному варианту:\n- "
+                + "\n- ".join(draft_warnings)
+            )
 
         if not editorial["accepted"]:
-            await msg.reply_text("Игорь нашёл существенную правку. Маша дорабатывает выбранный вариант один раз...")
-            revised_variants = await _run_blocking(
-                telegram_team.write, topic, research_note, strategy_output, GEMINI_API_KEY,
-                feedback=editorial["review"], previous_text=selected, voice_samples=voice_samples,
+            await msg.reply_text(
+                "Игорь нашёл существенную правку. Маша дорабатывает только "
+                "выбранный вариант, не генерируя ещё три черновика..."
             )
-            editorial = await _run_blocking(
-                telegram_team.review, topic, strategy_output, revised_variants, GEMINI_API_KEY
+            selected = await _run_blocking(
+                telegram_team.repair, topic, strategy_output, selected,
+                editorial["review"], GEMINI_API_KEY,
+                voice_samples=voice_samples,
+                notebook_context=(
+                    notebook_contexts.for_agents("writer", "editor", "voice")
+                ),
             )
-            selected = telegram_team.extract_variant(revised_variants, editorial["variant"])
-            if not editorial["accepted"]:
-                await msg.reply_text(
-                    "После одной доработки редактор всё ещё видит замечания. Не запускаю бесконечный круг — "
-                    "показываю лучший получившийся вариант, чтобы решение оставалось за тобой."
-                )
 
         await msg.reply_text("Даша — точечно настраиваю текст под голос Дмитрия, не меняя мысль...")
         selected_warnings = telegram_team.quality_warnings(selected)
         polished = await _run_blocking(
             telegram_team.polish, topic, selected, GEMINI_API_KEY,
             voice_samples=voice_samples, issues=selected_warnings,
+            notebook_context=notebook_contexts.for_agents("voice"),
         )
 
         remaining_warnings = telegram_team.quality_warnings(polished)
@@ -495,6 +617,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             polished = await _run_blocking(
                 telegram_team.polish, topic, polished, GEMINI_API_KEY,
                 voice_samples=voice_samples, issues=remaining_warnings,
+                notebook_context=notebook_contexts.for_agents("voice"),
             )
 
         polished_errors = telegram_team.validate_post(polished)
@@ -511,6 +634,67 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 )
                 return
 
+        await msg.reply_text(
+            "Света — финально проверяю честность, человечность и отсутствие "
+            "недоказанных психологических объяснений..."
+        )
+        gate_context = notebook_contexts.for_agents("editor", "voice")
+        final_gate = await _run_blocking(
+            telegram_team.final_review, topic, strategy_output, polished,
+            GEMINI_API_KEY,
+            previous_review=editorial["review"],
+            notebook_context=gate_context,
+        )
+        if not final_gate["accepted"]:
+            await msg.reply_text(
+                "Финальный контроль отклонил конструкцию текста. Маша пишет "
+                "один чистый вариант с нуля, без старых метафор..."
+            )
+            polished = await _run_blocking(
+                telegram_team.clean_rewrite,
+                topic,
+                strategy_output,
+                polished,
+                final_gate["review"],
+                GEMINI_API_KEY,
+                voice_samples=voice_samples,
+                notebook_context=gate_context,
+            )
+            rewrite_blockers = (
+                telegram_team.validate_post(polished)
+                + telegram_team.quality_warnings(polished)
+            )
+            if rewrite_blockers:
+                await msg.reply_text(
+                    "Останавливаюсь: чистый вариант не прошёл жёсткую "
+                    "проверку (" + "; ".join(rewrite_blockers) + ")."
+                )
+                return
+            final_gate = await _run_blocking(
+                telegram_team.final_review, topic, strategy_output, polished,
+                GEMINI_API_KEY,
+                previous_review=final_gate["review"],
+                notebook_context=gate_context,
+            )
+            if not final_gate["accepted"]:
+                await msg.reply_text(
+                    "Останавливаюсь: после чистого переписывания финальный "
+                    "редактор всё ещё не принимает текст. Брак не отправляю.\n\n"
+                    + final_gate["review"]
+                )
+                return
+
+        delivery_blockers = (
+            telegram_team.validate_post(polished)
+            + telegram_team.quality_warnings(polished)
+        )
+        if delivery_blockers:
+            await msg.reply_text(
+                "Останавливаюсь перед отправкой: жёсткий финальный шлюз нашёл "
+                "оставшиеся дефекты (" + "; ".join(delivery_blockers) + ")."
+            )
+            return
+
         memory_utils.register_published(
             topic,
             angle=strategy_output[:300],
@@ -526,6 +710,7 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_post_topic"] = topic
         user_data["last_analysis"] = research_note
         user_data["last_strategy"] = strategy_output
+        user_data["last_commercial_blueprint"] = commercial_blueprint
         user_data["last_final_tg"] = polished
         user_data["last_final_ig_post"] = ""
         user_data["last_pipeline_mode"] = "post"
@@ -563,6 +748,7 @@ async def _run_pack(msg: Message, topic: str, user_data: dict, feedback: str = N
 
 
 async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: str = None, delivery_filter: str = "all"):
+    route = team_registry.route_for(topic)
     # Маршрутизация правок: тональная правка («теплее», «живее», «проще», «ближе», «меньше
     # пафоса») идёт сразу к Даше и на быструю проверку редактора — минуя Нину, Артёма, Машу
     # и Катю целиком. Раньше даже такая правка гоняла всю команду заново.
@@ -660,6 +846,28 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
     )
 
     try:
+        await msg.reply_text(
+            f"NotebookLM — собираю маршрут «{team_registry.MODE_LABELS[route.mode]}» "
+            "для полного пакета..."
+        )
+        try:
+            notebook_contexts = await _run_blocking(
+                notebook_live.build_topic_context,
+                topic,
+                route.mode,
+            )
+        except notebook_live.NotebookLiveError as exc:
+            await msg.reply_text(
+                "Останавливаюсь до написания пакета: обязательный маршрут "
+                f"NotebookLM не прошёл.\n\nПричина: {exc}"
+            )
+            return
+
+        commercial_blueprint = (
+            user_data.get("last_commercial_blueprint", "")
+            if reuse_previous
+            else ""
+        )
         if reuse_previous:
             await msg.reply_text(
                 "Переиспользую уже одобренные анализ Нины и стратегию Артёма — правлю сам текст, "
@@ -669,11 +877,43 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_strategist = {"strategy": user_data["last_strategy"]}
         else:
             await msg.reply_text("Нина Соколова — анализирую аудиторию...")
-            r_analyst = await _run_blocking(analyst.run, topic, GEMINI_API_KEY)
+            r_analyst = await _run_blocking(
+                analyst.run,
+                topic,
+                GEMINI_API_KEY,
+                notebook_context=notebook_contexts.for_agents("researcher"),
+            )
             await _send(msg, f"{ROLES['Нина']}:\n\n{r_analyst['analysis']}")
 
+            if route.mode == team_registry.COMMERCIAL:
+                await msg.reply_text(
+                    "Виктор Самойлов — строю коммерческий каркас до текстов..."
+                )
+                r_offer_blueprint = await _run_blocking(
+                    offer_architect.run,
+                    topic,
+                    r_analyst["analysis"],
+                    GEMINI_API_KEY,
+                    notebook_context=notebook_contexts.for_agents(
+                        "offer_architect"
+                    ),
+                )
+                commercial_blueprint = r_offer_blueprint["offer"]
+
             await msg.reply_text("Артём Волков — строю стратегию...")
-            r_strategist = await _run_blocking(strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY)
+            strategist_notebooks = notebook_contexts.for_agents("strategist")
+            if commercial_blueprint:
+                strategist_notebooks += (
+                    "\n\nКОММЕРЧЕСКИЙ КАРКАС ВИКТОРА:\n"
+                    + commercial_blueprint
+                )
+            r_strategist = await _run_blocking(
+                strategist.run,
+                topic,
+                r_analyst["analysis"],
+                GEMINI_API_KEY,
+                notebook_context=strategist_notebooks,
+            )
             await _send(msg, f"{ROLES['Артём']}:\n\n{r_strategist['strategy']}")
 
             await msg.reply_text(f"{ROLES['Олег']} — ранняя проверка стратегии на повтор архитектуры, до того как Маша и Катя начнут писать...")
@@ -706,7 +946,8 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 asyncio.gather(
                     loop.run_in_executor(None, lambda: copywriter.run(
                         topic, r_analyst["analysis"], r_strategist["strategy"], GEMINI_API_KEY,
-                        editor_feedback=feedback, iteration=2 if feedback else 1
+                        editor_feedback=feedback, iteration=2 if feedback else 1,
+                        notebook_context=notebook_contexts.for_agents("writer"),
                     )),
                     loop.run_in_executor(None, lambda: instagram_writer.run(
                         topic, r_analyst["analysis"], r_strategist["strategy"], "", GEMINI_API_KEY,
@@ -740,7 +981,12 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await _send(msg, f"{feedback_source}: проблема не в тексте, а в самой стратегии:\n\n{feedback_text}")
             await msg.reply_text(f"{ROLES['Артём']}: пересматриваю угол по этому замечанию...")
             r_strategist2 = await _run_blocking(
-                strategist.run, topic, r_analyst["analysis"], GEMINI_API_KEY, feedback=feedback_text
+                strategist.run,
+                topic,
+                r_analyst["analysis"],
+                GEMINI_API_KEY,
+                feedback=feedback_text,
+                notebook_context=notebook_contexts.for_agents("strategist"),
             )
             strategy_output = r_strategist2["strategy"]
             strategy_image = r_strategist2.get("central_image", "")
@@ -764,7 +1010,9 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             loop = asyncio.get_running_loop()
             new_copy, new_insta = await asyncio.gather(
                 loop.run_in_executor(None, lambda: copywriter.run(
-                    topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY, iteration=2
+                    topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY,
+                    iteration=2,
+                    notebook_context=notebook_contexts.for_agents("writer"),
                 )),
                 loop.run_in_executor(None, lambda: instagram_writer.run(
                     topic, r_analyst["analysis"], strategy_output, "", GEMINI_API_KEY, iteration=2
@@ -775,7 +1023,8 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
         await msg.reply_text("Игорь Орлов — читаю оба варианта Маши...")
         r_editor = await _run_blocking(
             editor.run, topic, r_analyst["analysis"], strategy_output,
-            r_copy["texts"], GEMINI_API_KEY
+            r_copy["texts"], GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("editor"),
         )
 
         # До двух автоматических пересмотров стратегии, не одного — новые более строгие
@@ -792,7 +1041,9 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_copy, r_insta = await _revise_strategy(ROLES['Игорь'], r_editor["review"])
             r_editor = await _run_blocking(
                 editor.run, topic, r_analyst["analysis"], strategy_output,
-                r_copy["texts"], GEMINI_API_KEY, iteration=1 + strategy_revision_attempts
+                r_copy["texts"], GEMINI_API_KEY,
+                iteration=1 + strategy_revision_attempts,
+                notebook_context=notebook_contexts.for_agents("editor"),
             )
             if not r_editor.get("strategy_rejected"):
                 await msg.reply_text(
@@ -813,11 +1064,13 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             await msg.reply_text(f"{ROLES['Маша']}: Поняла, исправляю...")
             r_copy2 = await _run_blocking(
                 copywriter.run, topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY,
-                editor_feedback=r_editor["review"], iteration=2
+                editor_feedback=r_editor["review"], iteration=2,
+                notebook_context=notebook_contexts.for_agents("writer"),
             )
             r_editor2 = await _run_blocking(
                 editor.run, topic, r_analyst["analysis"], strategy_output,
-                r_copy2["texts"], GEMINI_API_KEY, iteration=2
+                r_copy2["texts"], GEMINI_API_KEY, iteration=2,
+                notebook_context=notebook_contexts.for_agents("editor"),
             )
             r_copy = r_copy2
             r_editor = r_editor2
@@ -849,18 +1102,21 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
             r_copy, r_insta = await _revise_strategy(ROLES['Лена'], r_ig_ed["review"])
             r_editor = await _run_blocking(
                 editor.run, topic, r_analyst["analysis"], strategy_output,
-                r_copy["texts"], GEMINI_API_KEY, iteration=3
+                r_copy["texts"], GEMINI_API_KEY, iteration=3,
+                notebook_context=notebook_contexts.for_agents("editor"),
             )
             if not r_editor["accepted"]:
                 await _send(msg, f"{ROLES['Игорь']}: перепроверил Telegram под новую стратегию — есть замечания:\n\n{r_editor['review']}")
                 await msg.reply_text(f"{ROLES['Маша']}: поняла, исправляю ещё раз...")
                 r_copy2 = await _run_blocking(
                     copywriter.run, topic, r_analyst["analysis"], strategy_output, GEMINI_API_KEY,
-                    editor_feedback=r_editor["review"], iteration=3
+                    editor_feedback=r_editor["review"], iteration=3,
+                    notebook_context=notebook_contexts.for_agents("writer"),
                 )
                 r_editor2 = await _run_blocking(
                     editor.run, topic, r_analyst["analysis"], strategy_output,
-                    r_copy2["texts"], GEMINI_API_KEY, iteration=3
+                    r_copy2["texts"], GEMINI_API_KEY, iteration=3,
+                    notebook_context=notebook_contexts.for_agents("editor"),
                 )
                 r_copy = r_copy2
                 r_editor = r_editor2
@@ -945,7 +1201,14 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
         final_ig_sections = dict(_split_instagram_sections(final_ig))
         ig_post_raw = final_ig_sections.pop("ПОСТ", final_ig)
         ig_other_sections_raw = final_ig_sections  # СТОРИС / КАРУСЕЛЬ / REELS
-        r_human = await _run_blocking(humanizer.run, topic, final_tg, ig_post_raw, GEMINI_API_KEY)
+        r_human = await _run_blocking(
+            humanizer.run,
+            topic,
+            final_tg,
+            ig_post_raw,
+            GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("voice"),
+        )
 
         ig_other_sections = {}
         for label, content in ig_other_sections_raw.items():
@@ -1068,6 +1331,7 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
         user_data["last_post_topic"] = topic
         user_data["last_analysis"] = r_analyst["analysis"]
         user_data["last_strategy"] = strategy_output
+        user_data["last_commercial_blueprint"] = commercial_blueprint
         user_data["last_final_tg"] = r_human["telegram_humanized"]
         user_data["last_final_ig_post"] = ig_post_content
         user_data["last_pipeline_mode"] = "pack"
@@ -1107,14 +1371,45 @@ async def _run_pack_inner(msg: Message, topic: str, user_data: dict, feedback: s
 
 
 async def _run_offer(msg: Message, product: str):
-    await msg.reply_text(f"Нина и Виктор берутся за оффер:\n«{product}»\n\nЗаймёт ~1 минуту...")
+    await msg.reply_text(
+        f"Коммерческий маршрут: Нина → Виктор → этический контроль:\n"
+        f"«{product}»\n\nСначала запрашиваю профильные NotebookLM-блокноты."
+    )
     try:
+        try:
+            notebook_contexts = await _run_blocking(
+                notebook_live.build_topic_context,
+                product,
+                team_registry.COMMERCIAL,
+            )
+        except notebook_live.NotebookLiveError as exc:
+            await msg.reply_text(
+                "Останавливаюсь до оффера: обязательный коммерческий маршрут "
+                f"NotebookLM не прошёл.\n\nПричина: {exc}"
+            )
+            return
+
+        await msg.reply_text(
+            "NotebookLM — коммерческий маршрут собран: "
+            + ", ".join(notebook_contexts.selected_notebooks)
+        )
         await msg.reply_text("Нина Соколова — анализирую аудиторию под этот продукт...")
-        r_analyst = await _run_blocking(analyst.run, product, GEMINI_API_KEY)
+        r_analyst = await _run_blocking(
+            analyst.run,
+            product,
+            GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("researcher"),
+        )
         await msg.reply_text(f"{ROLES['Нина']}: Готово. Виктор, передаю анализ.")
 
         await msg.reply_text("Виктор Самойлов — строю оффер по Хормози...")
-        r_offer = await _run_blocking(offer_architect.run, product, r_analyst["analysis"], GEMINI_API_KEY)
+        r_offer = await _run_blocking(
+            offer_architect.run,
+            product,
+            r_analyst["analysis"],
+            GEMINI_API_KEY,
+            notebook_context=notebook_contexts.for_agents("offer_architect"),
+        )
 
         await msg.reply_text(f"━━━━━━━━━━━━━━━━━━━\n{ROLES['Виктор']} — сдал оффер\n━━━━━━━━━━━━━━━━━━━")
         await _send(msg, f"ОФФЕР — {product.upper()}\n\n{r_offer['offer']}")
@@ -1152,11 +1447,29 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Состояние SMM-команды:\n"
         f"• Gemini: {'подключён' if GEMINI_API_KEY else 'не настроен'}\n"
+        f"• Gemini Notebook: {notebook_live.status_line()}\n"
+        f"• единый реестр: {team_registry.registry_status()}\n"
         "• /post: 5 ролей, только Telegram\n"
         "• /pack: полный Telegram + Instagram\n"
         f"• последний режим: {mode}\n"
         f"• команда сейчас занята: {busy}"
     )
+
+
+async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _send(update.message, team_registry.team_manifest())
+
+
+async def cmd_route(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    request_text = " ".join(context.args).strip() if context.args else ""
+    if not request_text:
+        await update.message.reply_text(
+            "Напиши задачу после команды.\n"
+            "Пример: /route пост о страхе важного разговора\n"
+            "Пример: /route оффер на групповую программу"
+        )
+        return
+    await update.message.reply_text(team_registry.route_summary(request_text))
 
 
 async def cmd_offer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1345,6 +1658,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Пример: /post практика Танец Души\n\n"
         "/pack тема — полный пакет Telegram + Instagram\n\n"
         "/status — состояние команды и режимов\n\n"
+        "/team — кто за что отвечает и какие блокноты подключены\n"
+        "/route задача — показать режим, агентов и блокноты до запуска\n\n"
         "/offer продукт — создать продающий оффер\n"
         "Пример: /offer Личная сессия с Дмитрием\n\n"
         "/architect — аудит команды\n"
@@ -1869,6 +2184,8 @@ def main():
 
     print("SMM-бот запускается...")
     print(f"Gemini API: {'настроен' if GEMINI_API_KEY else 'не задан'}")
+    print(f"NotebookLM: {notebook_live.status_line()}")
+    print(f"Маршрутизатор: {team_registry.registry_status()}")
 
     persistence = PicklePersistence(filepath=os.path.join(os.path.dirname(__file__), "bot_state.pkl"))
     app = (
@@ -1883,6 +2200,8 @@ def main():
     app.add_handler(CommandHandler("post", cmd_post))
     app.add_handler(CommandHandler("pack", cmd_pack))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("team", cmd_team))
+    app.add_handler(CommandHandler("route", cmd_route))
     app.add_handler(CommandHandler("offer", cmd_offer))
     app.add_handler(CommandHandler("architect", cmd_architect))
     app.add_handler(CommandHandler("plan", cmd_plan))

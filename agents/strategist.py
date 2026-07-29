@@ -238,7 +238,13 @@ SYSTEM_PROMPT = """Ты — Артём Волков, контент-страте
 Только русский язык."""
 
 
-def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> dict:
+def run(
+    topic: str,
+    analyst_output: str,
+    api_key: str,
+    feedback: str = None,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
@@ -262,6 +268,14 @@ def run(topic: str, analyst_output: str, api_key: str, feedback: str = None) -> 
 Это пересмотр после отклонения, не косметическая правка. Пройди Шаг 1–3 (п.1) заново, с нуля — не патчи старый угол.
 В Шаге 2 (оценка углов) ты сам выставляешь вердикты «сильный/рабочий/слабый/отклонить» — если какому-то углу ты сам поставил «риск повтора» или подобную оговорку, ты не имеешь права выбрать его в Шаге 3, даже если формально он «рабочий». Выбирай только угол без такой оговорки от тебя самого.
 Также заново сверься со списком ЗАПРЕЩЁННЫХ АРХИТЕКТУР/ОБРАЗОВ/СХЕМ команды (если он передан в начале этого промпта) — он мог обновиться с прошлой попытки."""
+
+    if notebook_context:
+        user_msg += (
+            "\n\nРЕКОМЕНДАЦИИ НАЗНАЧЕННЫХ NOTEBOOKLM-БЛОКНОТОВ:\n"
+            + notebook_context
+            + "\n\nЭто материал для проверки углов, а не готовая стратегия. "
+            "Выбирай решение сам и отбрасывай недоказанные выводы."
+        )
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=9000, temperature=0.7)
 

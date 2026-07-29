@@ -440,9 +440,21 @@ def trim_to_length(text: str, max_len: int, topic: str, api_key: str) -> str:
                         disable_thinking=True).strip()
 
 
-def run(topic: str, telegram_text: str, instagram_text: str, api_key: str) -> dict:
+def run(
+    topic: str,
+    telegram_text: str,
+    instagram_text: str,
+    api_key: str,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
+    if notebook_context:
+        system += (
+            "\n\nРЕКОМЕНДАЦИИ NOTEBOOKLM ПО ГОЛОСУ ДМИТРИЯ:\n"
+            + notebook_context
+            + "\n\nНе добавляй новых мыслей и не имитируй стиль экспертов."
+        )
 
     tg_humanized = _humanize_one("Telegram", telegram_text, topic, system, api_key)
 

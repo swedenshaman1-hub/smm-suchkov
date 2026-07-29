@@ -180,8 +180,15 @@ SYSTEM_PROMPT = """Ты — Маша Лебедева, Telegram-копирайт
 Только русский язык."""
 
 
-def run(topic: str, analyst_output: str, strategy_output: str,
-        api_key: str, editor_feedback: str = None, iteration: int = 1) -> dict:
+def run(
+    topic: str,
+    analyst_output: str,
+    strategy_output: str,
+    api_key: str,
+    editor_feedback: str = None,
+    iteration: int = 1,
+    notebook_context: str = "",
+) -> dict:
     memory = memory_utils.load(AGENT_ID)
     system = SYSTEM_PROMPT + memory_utils.build_context(memory, topic)
 
@@ -204,6 +211,14 @@ def run(topic: str, analyst_output: str, strategy_output: str,
 {editor_feedback}
 
 Перепиши оба варианта с учётом всех замечаний — сохрани глубину, исправь отмеченное."""
+
+    if notebook_context:
+        user_msg += (
+            "\n\nРЕКОМЕНДАЦИИ НАЗНАЧЕННЫХ NOTEBOOKLM-БЛОКНОТОВ:\n"
+            + notebook_context
+            + "\n\nНе копируй манеру экспертов. Используй рекомендации только "
+            "для ясности, удержания и сохранения голоса Дмитрия."
+        )
 
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=8000, temperature=0.8)
 

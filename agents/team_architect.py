@@ -6,7 +6,7 @@
 import os
 import json
 from agents.gemini_utils import gemini_call
-from agents import memory_utils
+from agents import memory_utils, team_registry
 
 AGENT_ID = "team_architect"
 MODEL = "gemini-2.5-flash"
@@ -138,7 +138,13 @@ def run(api_key: str, focus: str = None) -> dict:
     if focus:
         user_msg += f"\n\nОСОБЫЙ ФОКУС АНАЛИЗА: {focus}"
 
-    system = SYSTEM_PROMPT + memory_utils.build_context(my_memory, "аудит команды")
+    system = (
+        SYSTEM_PROMPT
+        + "\n\n"
+        + team_registry.team_manifest()
+        + "\n\n"
+        + memory_utils.build_context(my_memory, "аудит команды")
+    )
     result_text = gemini_call(api_key, MODEL, system, user_msg, max_tokens=6000, temperature=0.7)
 
     # Архитектор тоже учится
