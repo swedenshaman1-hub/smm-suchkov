@@ -94,6 +94,41 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertNotIn("—", clean)
         self.assertIn("по-прежнему", clean)
 
+    def test_rejected_control_post_exposes_structural_defects(self):
+        topic = (
+            "Момент, когда ты продолжаешь объяснять своё решение другим "
+            "и вдруг понимаешь, что сам уже в него не веришь"
+        )
+        text = (
+            "Вы стоите перед группой и объясняете стратегию. "
+            "Коллеги кивают во время презентации. Вы слышите свой голос. "
+            "Вы замечаете напряжение в груди и поверхностное дыхание. "
+            "Слова лишены вашей внутренней энергии. Это смена оптики. "
+            "Внутри работает другой механизм. Не игнорируйте это ощущение. "
+            "Оно может стать ключом к новому пониманию."
+        )
+
+        warnings = telegram_team.structural_warnings(topic, text)
+
+        self.assertGreaterEqual(len(warnings), 6)
+        self.assertTrue(any("группу" in item for item in warnings))
+        self.assertTrue(any("телесные реакции" in item for item in warnings))
+        self.assertTrue(any("AI-формулы" in item for item in warnings))
+        self.assertTrue(any("второго лица" in item for item in warnings))
+
+    def test_context_neutral_post_has_no_structural_warning(self):
+        topic = "Как заметить, что собственный аргумент больше не убеждает"
+        text = (
+            "Иногда аргумент перестаёт убеждать раньше, чем заканчивается фраза. "
+            "Это ещё не доказывает, что решение ошибочно. Полезно отделить два "
+            "вопроса. Какой именно довод перестал работать? Появился новый факт "
+            "или прежнее объяснение просто больше не выдерживает проверки? "
+            "Такая пауза не даёт готового ответа. Она показывает место, которое "
+            "перед следующим разговором стоит проверить заново."
+        )
+
+        self.assertFalse(telegram_team.structural_warnings(topic, text))
+
 
 if __name__ == "__main__":
     unittest.main()

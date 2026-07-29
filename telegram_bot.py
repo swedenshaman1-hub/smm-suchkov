@@ -600,7 +600,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             hook_brief=hook_brief,
         )
         selected = telegram_team.extract_variant(variants, editorial["variant"])
-        draft_warnings = telegram_team.quality_warnings(selected)
+        draft_warnings = list(dict.fromkeys(
+            telegram_team.quality_warnings(selected)
+            + telegram_team.structural_warnings(topic, selected)
+        ))
         if draft_warnings:
             editorial["review"] += (
                 "\n\nАвтоматические замечания к выбранному варианту:\n- "
@@ -654,10 +657,11 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             hook_brief=hook_brief,
             notebook_context=notebook_contexts.for_agents("editor"),
         )
-        assembly_blockers = (
+        assembly_blockers = list(dict.fromkeys(
             telegram_team.validate_post(polished)
             + telegram_team.blocking_quality_warnings(polished)
-        )
+            + telegram_team.structural_warnings(topic, polished)
+        ))
         correction_issues = [
             issue for issue in assembly_blockers if "длиннее 1900" not in issue
         ]
@@ -710,10 +714,11 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                 )
 
         polished = telegram_team.clean_human_surface(topic, polished)
-        delivery_blockers = (
+        delivery_blockers = list(dict.fromkeys(
             telegram_team.validate_post(polished)
             + telegram_team.blocking_quality_warnings(polished)
-        )
+            + telegram_team.structural_warnings(topic, polished)
+        ))
         if delivery_blockers:
             await msg.reply_text(
                 "Останавливаюсь только из-за смыслового, фактического или брендового "
