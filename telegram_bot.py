@@ -464,8 +464,12 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             )
         )
 
-        recent_posts = await _run_blocking(channel_stats.get_recent_posts, CHANNEL_CHAT_ID, 8)
-        voice_samples = telegram_team.build_voice_samples(recent_posts)
+        # Do not feed recent channel posts back into the writer automatically.
+        # A generated post can be published before Dmitriy has approved it as a
+        # voice reference; reusing it here creates a self-reinforcing AI style.
+        # Until an explicit approved-posts collection exists, SMM-06 is the only
+        # source of Dmitriy's voice.
+        voice_samples = ""
 
         if reuse_previous:
             research_note = user_data["last_analysis"]
@@ -494,8 +498,6 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
                         notebook_contexts.for_agents("offer_architect")
                         + "\n\n"
                         + notebook_contexts.ethics
-                        + "\n\n"
-                        + notebook_contexts.voice
                     ),
                 )
                 commercial_blueprint = offer_result["offer"]
@@ -629,7 +631,10 @@ async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: s
             "Маша — один раз собираю окончательный текст из выбранного хука, "
             "варианта, правок Игоря и настроек Даши..."
         )
-        final_context = notebook_contexts.for_agents("writer", "voice")
+        # Dasha distils SMM-06 into bounded style notes above.  The final
+        # writer receives those notes, not the raw voice-notebook answer, so
+        # worldview or old subject matter cannot leak in as new content.
+        final_context = notebook_contexts.for_agents("writer")
         polished = await _run_blocking(
             telegram_team.assemble_final,
             topic,

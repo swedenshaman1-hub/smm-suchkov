@@ -31,13 +31,15 @@ MODE_LABELS = {
 # A bounded council for each mode. Required notebooks are always queried;
 # these are the only additional advisers invited automatically.
 DEFAULT_OPTIONAL_NOTEBOOKS = {
-    EDITORIAL: (),
+    EDITORIAL: ("smm02c_human_text",),
     BRAND: (
+        "smm02c_human_text",
         "smm05a_positioning",
         "smm07_brand_architecture",
         "smm08_creator_system",
     ),
     COMMERCIAL: (
+        "smm02c_human_text",
         "smm05a_positioning",
         "smm07_brand_architecture",
         "smm05b_distribution",
@@ -292,7 +294,7 @@ NOTEBOOKS = (
         "SMM-06 — Голос Дмитрия",
         "voice",
         TASK_MODES,
-        ("writer", "voice", "editor"),
+        ("voice",),
         "4625852e-4428-4eeb-9902-d2794865d45d",
         required_modes=TASK_MODES,
     ),

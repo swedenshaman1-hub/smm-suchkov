@@ -9,13 +9,14 @@ class NotebookLiveRouterTests(unittest.TestCase):
         selected = notebook_live._selected_notebooks(route)
         keys = {nb.key for nb in selected}
 
-        self.assertEqual(len(selected), 6)
+        self.assertEqual(len(selected), 7)
         self.assertNotIn("hormozi_1", keys)
         self.assertNotIn("smm05a_positioning", keys)
         self.assertEqual(
             keys,
             {
                 "smm02a_audience",
+                "smm02c_human_text",
                 "smm03a_angles",
                 "smm03b_dramaturgy",
                 "smm06_voice",
@@ -43,6 +44,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
                 "offer:hormozi_1": "Каркас оффера",
                 "ethics:smm04_ethics": "Этическая проверка",
                 "ethics:smm12_ethical_boundaries": "Проверка этических границ",
+                "human_text:smm02c_human_text": "Человеческая редактура",
                 "voice:smm06_voice": "Голос Дмитрия",
             },
             selected_notebooks=(
@@ -50,12 +52,15 @@ class NotebookLiveRouterTests(unittest.TestCase):
                 "hormozi_1",
                 "smm04_ethics",
                 "smm12_ethical_boundaries",
+                "smm02c_human_text",
                 "smm06_voice",
             ),
         )
 
         researcher_context = contexts.for_agents("researcher")
         offer_context = contexts.for_agents("offer_architect")
+        writer_context = contexts.for_agents("writer")
+        voice_context = contexts.for_agents("voice")
 
         self.assertIn("Язык аудитории", researcher_context)
         self.assertNotIn("Каркас оффера", researcher_context)
@@ -63,6 +68,22 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("Этическая проверка", offer_context)
         self.assertIn("Проверка этических границ", offer_context)
         self.assertNotIn("Голос Дмитрия", offer_context)
+        self.assertIn("Человеческая редактура", writer_context)
+        self.assertNotIn("Голос Дмитрия", writer_context)
+        self.assertIn("Человеческая редактура", voice_context)
+        self.assertIn("Голос Дмитрия", voice_context)
+
+    def test_voice_query_is_style_only(self):
+        prompt = notebook_live._query_prompt(
+            "Почему после решения не пришло облегчение",
+            "voice",
+        )
+
+        self.assertIn("только по слышимой форме речи", prompt)
+        self.assertIn("Не объясняй рабочую тему", prompt)
+        self.assertIn("темы головы и", prompt)
+        self.assertIn("тела, энергии, терапии", prompt)
+        self.assertIn("voice-isolation", notebook_live.PROMPT_VERSION)
 
 
 if __name__ == "__main__":
