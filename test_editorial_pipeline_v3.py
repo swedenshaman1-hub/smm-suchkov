@@ -318,7 +318,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertIn("полные фразы средней длины", brief)
         self.assertIn("без цепочек обрывков", brief)
-        self.assertIn("одно обращение на «ты»", brief)
+        self.assertIn("два–пять естественных обращений на «ты»", brief)
         self.assertIn("без «вы»", brief)
         self.assertIn("завершённая разговорная фраза", brief)
         self.assertNotIn("резкий обрыв", brief)
@@ -429,9 +429,9 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertTrue(any("6–9" in issue for issue in issues), issues)
         cleaned = telegram_team.clean_human_surface(TOPIC, text)
         self.assertNotIn("башк", cleaned.lower())
-        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−-]")
+        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−]")
 
-    def test_surface_replaces_bashka_and_removes_quotes_dashes_and_hyphens(self):
+    def test_surface_replaces_bashka_and_preserves_required_hyphens(self):
         raw = (
             "Первая мысль в башке — нужно что-то исправить. "
             "Это «по-настоящему» важный вопрос."
@@ -440,11 +440,25 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         cleaned = telegram_team.clean_human_surface("Другая тема", raw)
 
         self.assertEqual(
-            "Первая мысль в голове нужно что то исправить. "
-            "Это по настоящему важный вопрос.",
+            "Первая мысль в голове нужно что-то исправить. "
+            "Это по-настоящему важный вопрос.",
             cleaned,
         )
-        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−-]")
+        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−]")
+
+    def test_quality_contract_rejects_dash_removal_that_breaks_grammar(self):
+        text = (
+            "Есть два способа помочь близкому. Первый стать для него проводником. "
+            "Жизнь близкого это его путь. Попытка решить всё за него это контроль. "
+            "Его задача остановить опасное действие."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(
+            any("пропущенной связкой" in item for item in warnings),
+            warnings,
+        )
 
     def test_contract_catches_defects_from_second_real_generation(self):
         text = """Бывает состояние острее, чем сам разрыв. Это момент, когда вы
@@ -539,6 +553,18 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn(
             "Художественный пример сохрани",
             telegram_team.BLUEPRINT_REPAIR_PROMPT,
+        )
+        self.assertIn(
+            "тест холодного читателя",
+            telegram_team.BLUEPRINT_CREATION_ADDENDUM,
+        )
+        self.assertIn(
+            "Холодный читатель",
+            telegram_team.SINGLE_AUDIT_PROMPT,
+        )
+        self.assertIn(
+            "два–пять естественных обращений на «ты»",
+            telegram_team.SINGLE_WRITER_PROMPT.lower(),
         )
         self.assertIn(
             "художественная сцена выдана за реального клиента",

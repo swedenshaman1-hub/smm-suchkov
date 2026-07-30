@@ -80,7 +80,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertTrue(any("скрытый мотив" in item for item in blockers))
 
-    def test_human_surface_removes_topic_quotes_dashes_and_hyphens(self):
+    def test_human_surface_removes_topic_quotes_and_decorative_dashes(self):
         topic = "Когда решение перестаёт быть твоим"
         raw = (
             "Когда решение перестаёт быть твоим\n"
@@ -93,8 +93,22 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertNotIn("«", clean)
         self.assertNotIn("»", clean)
         self.assertNotIn("—", clean)
-        self.assertNotIn("-", clean)
-        self.assertIn("по прежнему", clean)
+        self.assertIn("по-прежнему", clean)
+
+    def test_human_surface_restores_required_russian_hyphens(self):
+        clean = telegram_team.clean_human_surface(
+            "Другая тема",
+            (
+                "Что то изменилось, но это по прежнему важно. "
+                "Ответ вот вот появится из за одного решения."
+            ),
+        )
+
+        self.assertIn("Что-то", clean)
+        self.assertIn("по-прежнему", clean)
+        self.assertIn("вот-вот", clean)
+        self.assertIn("из-за", clean)
+        self.assertNotIn("—", clean)
 
     def test_human_surface_removes_double_sentence_punctuation(self):
         clean = telegram_team.clean_human_surface(
@@ -103,6 +117,48 @@ class NotebookPlaybooksTest(unittest.TestCase):
         )
 
         self.assertEqual("Что происходит? Это уже закончилось!", clean)
+
+    def test_relationship_opening_must_make_sense_without_command_topic(self):
+        topic = (
+            "Самая тихая потеря в отношениях начинается, когда важную фразу "
+            "снова сокращаешь до обычного всё нормально"
+        )
+        text = (
+            "Важные слова уже готовы к произнесению. "
+            "Но в последний момент они остаются внутри."
+        )
+
+        warnings = telegram_team.structural_warnings(topic, text)
+
+        self.assertTrue(any("непонятно" in item for item in warnings), warnings)
+
+    def test_relationship_opening_with_action_and_context_is_self_contained(self):
+        topic = (
+            "Самая тихая потеря в отношениях начинается, когда важную фразу "
+            "снова сокращаешь до обычного всё нормально"
+        )
+        text = (
+            "Иногда отношения меняются в тот вечер, когда стираешь важное "
+            "сообщение и вместо него пишешь всё нормально."
+        )
+
+        warnings = telegram_team.structural_warnings(topic, text)
+
+        self.assertFalse(
+            any("первые две фразы" in item for item in warnings),
+            warnings,
+        )
+
+    def test_bookish_abstractions_are_not_treated_as_living_speech(self):
+        warnings = telegram_team.quality_warnings(
+            "Нужно разделить сложность и совершить переход от защиты "
+            "к предложению посмотреть на происходящее."
+        )
+
+        self.assertTrue(
+            any("живыми разговорными глаголами" in item for item in warnings),
+            warnings,
+        )
 
     def test_rejected_control_post_keeps_scene_but_exposes_ai_phrasing(self):
         topic = (
