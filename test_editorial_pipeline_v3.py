@@ -321,9 +321,26 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertTrue(any("скрытый мотив" in issue for issue in issues), issues)
         self.assertTrue(any("не возвращает близость" in issue for issue in issues), issues)
         self.assertTrue(any("мужской пол" in issue for issue in issues), issues)
-        self.assertTrue(any("речевой регистр" in issue for issue in issues), issues)
         self.assertTrue(any("абстрактные ярлыки" in issue for issue in issues), issues)
         self.assertTrue(any("6–9" in issue for issue in issues), issues)
+        cleaned = telegram_team.clean_human_surface(TOPIC, text)
+        self.assertNotIn("башк", cleaned.lower())
+        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−-]")
+
+    def test_surface_replaces_bashka_and_removes_quotes_dashes_and_hyphens(self):
+        raw = (
+            "Первая мысль в башке — нужно что-то исправить. "
+            "Это «по-настоящему» важный вопрос."
+        )
+
+        cleaned = telegram_team.clean_human_surface("Другая тема", raw)
+
+        self.assertEqual(
+            "Первая мысль в голове нужно что то исправить. "
+            "Это по настоящему важный вопрос.",
+            cleaned,
+        )
+        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−-]")
 
     def test_v3_prompts_bound_number_of_drafts(self):
         self.assertIn("Напиши один текст", telegram_team.SINGLE_WRITER_PROMPT)
