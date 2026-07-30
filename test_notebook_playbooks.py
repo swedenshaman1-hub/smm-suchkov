@@ -104,7 +104,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertEqual("Что происходит? Это уже закончилось!", clean)
 
-    def test_rejected_control_post_exposes_structural_defects(self):
+    def test_rejected_control_post_keeps_scene_but_exposes_ai_phrasing(self):
         topic = (
             "Момент, когда ты продолжаешь объяснять своё решение другим "
             "и вдруг понимаешь, что сам уже в него не веришь"
@@ -120,11 +120,11 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         warnings = telegram_team.structural_warnings(topic, text)
 
-        self.assertGreaterEqual(len(warnings), 6)
-        self.assertTrue(any("группу" in item for item in warnings))
-        self.assertTrue(any("телесные реакции" in item for item in warnings))
+        self.assertGreaterEqual(len(warnings), 2)
+        self.assertFalse(any("группу" in item for item in warnings))
+        self.assertFalse(any("телесные реакции" in item for item in warnings))
         self.assertTrue(any("AI-формулы" in item for item in warnings))
-        self.assertTrue(any("второго лица" in item for item in warnings))
+        self.assertTrue(any("назидательный финал" in item for item in warnings))
 
     def test_context_neutral_post_has_no_structural_warning(self):
         topic = "Как заметить, что собственный аргумент больше не убеждает"
@@ -153,7 +153,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertTrue(any("обращения" in item for item in warnings))
         self.assertFalse(blockers)
 
-    def test_invented_context_remains_structural_delivery_blocker(self):
+    def test_fictional_context_is_allowed_as_literary_example(self):
         topic = "Как заметить, что собственный аргумент больше не убеждает"
         text = (
             "На совещании коллеги слушают презентацию проекта. "
@@ -162,9 +162,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         blockers = telegram_team.blocking_structural_warnings(topic, text)
 
-        self.assertTrue(any("коллег" in item for item in blockers))
-        self.assertTrue(any("презентац" in item for item in blockers))
-        self.assertTrue(any("проект" in item for item in blockers))
+        self.assertFalse(blockers)
 
     def test_hidden_reputation_motive_is_rejected_when_topic_does_not_supply_it(self):
         topic = (
@@ -181,7 +179,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertTrue(any("мотивом защиты" in item for item in blockers))
 
-    def test_second_rejected_post_exposes_causal_and_invented_scene_defects(self):
+    def test_second_rejected_post_blocks_false_cause_not_fictional_scene(self):
         topic = (
             "Почему иногда после правильного решения не приходит облегчение "
             "и означает ли это, что решение было ошибочным"
@@ -197,7 +195,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertTrue(any("означает ли это" in item for item in blockers))
         self.assertTrue(any("мозга и тела" in item for item in blockers))
-        self.assertTrue(any("выдуманное событие" in item for item in blockers))
+        self.assertFalse(any("выдуманное событие" in item for item in blockers))
 
     def test_ambiguous_question_passes_with_explicit_limit_of_inference(self):
         topic = (

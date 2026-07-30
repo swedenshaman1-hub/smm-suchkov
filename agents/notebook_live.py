@@ -33,6 +33,15 @@ class NotebookLiveError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class NotebookAuth:
+    """Complete connector credentials, with cookies-only compatibility."""
+
+    cookies: dict[str, str]
+    csrf_token: str = ""
+    session_id: str = ""
+
+
+@dataclass(frozen=True)
 class TopicContexts:
     mode: str
     answers: dict[str, str]
@@ -120,7 +129,7 @@ _cache_lock = threading.Lock()
 _last_success_at: float | None = None
 
 
-def _load_cookies() -> dict[str, str]:
+def _load_auth() -> NotebookAuth:
     encoded = os.environ.get(AUTH_ENV, "").strip()
     if not encoded:
         raise NotebookLiveError(
@@ -128,9 +137,11 @@ def _load_cookies() -> dict[str, str]:
         )
     try:
         payload = json.loads(base64.b64decode(encoded).decode("utf-8"))
-        cookies = payload.get("cookies", payload)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise NotebookLiveError("данные авторизации Gemini Notebook повреждены") from exc
+    if not isinstance(payload, dict):
+        raise NotebookLiveError("данные авторизации Gemini Notebook повреждены")
+    cookies = payload.get("cookies", payload)
     if not isinstance(cookies, dict):
         raise NotebookLiveError("в авторизации Gemini Notebook нет cookie")
     cookies = {
@@ -144,7 +155,16 @@ def _load_cookies() -> dict[str, str]:
             "в авторизации Gemini Notebook не хватает обязательных cookie: "
             + ", ".join(sorted(missing))
         )
-    return cookies
+    return NotebookAuth(
+        cookies=cookies,
+        csrf_token=str(payload.get("csrf_token", "") or ""),
+        session_id=str(payload.get("session_id", "") or ""),
+    )
+
+
+def _load_cookies() -> dict[str, str]:
+    """Backward-compatible cookie accessor used by status and older callers."""
+    return _load_auth().cookies
 
 
 def _patched_client_class():
@@ -376,6 +396,8 @@ def _query_one(
     prompt: str,
     cookies: dict[str, str],
     attempts: int = QUERY_ATTEMPTS,
+    csrf_token: str = "",
+    session_id: str = "",
 ) -> tuple[str, str]:
     client_class = _patched_client_class()
     notebook_id = notebook.resolved_id()
@@ -386,7 +408,11 @@ def _query_one(
     attempts = max(1, attempts)
     for attempt in range(1, attempts + 1):
         try:
-            with client_class(cookies=cookies, csrf_token="", session_id="") as client:
+            with client_class(
+                cookies=cookies,
+                csrf_token=csrf_token,
+                session_id=session_id,
+            ) as client:
                 result = client.query(notebook_id, prompt, timeout=timeout)
             answer = (result.get("answer") or "").strip()
             if not answer:
@@ -473,7 +499,8 @@ def build_topic_context(
         if cached and time.time() - cached[0] < CACHE_TTL_SECONDS:
             return cached[1]
 
-    cookies = _load_cookies()
+    auth = _load_auth()
+    cookies = auth.cookies
     prompts = {
         notebook.key: _query_prompt(topic, notebook.adviser_role)
         for notebook in configured
@@ -510,6 +537,9 @@ def build_topic_context(
                     notebook,
                     prompts[notebook.key],
                     cookies,
+                    QUERY_ATTEMPTS,
+                    auth.csrf_token,
+                    auth.session_id,
                 ): notebook
                 for notebook in pending
             }
@@ -544,6 +574,8 @@ def build_topic_context(
                 prompts[notebook.key],
                 cookies,
                 attempts=1,
+                csrf_token=auth.csrf_token,
+                session_id=auth.session_id,
             )
             compound_key = f"{notebook.adviser_role}:{answer_key}"
             answers[compound_key] = f"Источник: {notebook.title}\n{answer}"

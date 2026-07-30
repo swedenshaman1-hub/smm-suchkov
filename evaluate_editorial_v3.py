@@ -73,7 +73,11 @@ def main() -> int:
         route.mode,
     )
     show("BLUEPRINT", blueprint)
-    blueprint_issues = telegram_team.blueprint_contract_issues(topic, blueprint)
+    blueprint_issues = telegram_team.full_blueprint_issues(
+        topic,
+        blueprint,
+        api_key,
+    )
     if blueprint_issues:
         show("BLUEPRINT ISSUES", "\n".join(blueprint_issues))
         blueprint = telegram_team.repair_editorial_blueprint(
@@ -84,7 +88,11 @@ def main() -> int:
             route.mode,
         )
         show("BLUEPRINT AFTER ONE REPAIR", blueprint)
-        blueprint_issues = telegram_team.blueprint_contract_issues(topic, blueprint)
+        blueprint_issues = telegram_team.full_blueprint_issues(
+            topic,
+            blueprint,
+            api_key,
+        )
         if blueprint_issues:
             show("STOP", "\n".join(blueprint_issues))
             return 1

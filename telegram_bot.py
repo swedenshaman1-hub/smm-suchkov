@@ -506,9 +506,11 @@ async def _run_post_inner_v3(
                 GEMINI_API_KEY,
                 route.mode,
             )
-            blueprint_issues = telegram_team.blueprint_contract_issues(
+            blueprint_issues = await _run_blocking(
+                telegram_team.full_blueprint_issues,
                 topic,
                 blueprint,
+                GEMINI_API_KEY,
             )
             if blueprint_issues:
                 await msg.reply_text(
@@ -523,9 +525,11 @@ async def _run_post_inner_v3(
                     GEMINI_API_KEY,
                     route.mode,
                 )
-                blueprint_issues = telegram_team.blueprint_contract_issues(
+                blueprint_issues = await _run_blocking(
+                    telegram_team.full_blueprint_issues,
                     topic,
                     blueprint,
+                    GEMINI_API_KEY,
                 )
                 if blueprint_issues:
                     blueprint_blockers = (

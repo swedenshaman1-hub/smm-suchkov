@@ -13,6 +13,8 @@ TOPIC = (
 
 def valid_blueprint(hook: str, thesis: str) -> str:
     return f"""КАРКАС: ГОТОВ
+НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: {TOPIC}
+ФАКТИЧЕСКИЙ КОНТРАКТ: факты исходной темы и один явно художественный пример
 ОБЕЩАНИЕ ЧИТАТЕЛЮ:
 Показать разницу между заботой об отношениях и отказом от собственного участия.
 ТЕЗИС:
@@ -33,7 +35,7 @@ def valid_blueprint(hook: str, thesis: str) -> str:
 ФИНАЛ:
 Вопрос не в количестве уступок, а в том, остаётся ли в них собственный выбор.
 ЗАПРЕЩЕНО В ТЕКСТЕ:
-Диагноз, товарная логика, искусственный дефицит, выдуманная сцена."""
+Диагноз, товарная логика, искусственный дефицит, ложный реальный кейс."""
 
 
 class EditorialPipelineV3Tests(unittest.TestCase):
@@ -59,10 +61,90 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertEqual(telegram_team.MODEL, mocked.call_args_list[1].args[1])
         self.assertFalse(mocked.call_args_list[1].kwargs["disable_thinking"])
 
+    def test_blueprint_fidelity_audit_accepts_grounded_carкас(self):
+        with patch(
+            "agents.telegram_team._reasoning_call",
+            return_value="КАРКАС: ПРИНЯТ",
+        ):
+            issues = telegram_team.audit_blueprint_fidelity(
+                TOPIC,
+                valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+                "key",
+            )
+
+        self.assertEqual([], issues)
+
+    def test_blueprint_fidelity_audit_blocks_fiction_presented_as_fact(self):
+        with patch(
+            "agents.telegram_team._reasoning_call",
+            return_value=(
+                "КАРКАС: ИСПРАВИТЬ\n"
+                "- Художественная сцена выдана за реальный клиентский случай.\n"
+                "- Переживание персонажа объявлено универсальным психологическим законом."
+            ),
+        ):
+            issues = telegram_team.audit_blueprint_fidelity(
+                TOPIC,
+                valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+                "key",
+            )
+
+        self.assertEqual(2, len(issues))
+        self.assertTrue(all("семантический аудит" in issue for issue in issues))
+        self.assertEqual(
+            issues,
+            telegram_team.blueprint_publication_blockers(issues),
+        )
+
+    def test_blueprint_fidelity_prompt_allows_one_fictional_micro_scene(self):
+        with patch(
+            "agents.telegram_team._reasoning_call",
+            return_value="КАРКАС: ПРИНЯТ",
+        ) as mocked:
+            issues = telegram_team.audit_blueprint_fidelity(
+                TOPIC,
+                valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+                "key",
+            )
+
+        self.assertEqual([], issues)
+        prompt = mocked.call_args.args[2]
+        self.assertIn(
+            "Свежий смысловой угол и один вымышленный пример разрешены",
+            prompt,
+        )
+
     def test_blueprint_rejects_relationship_commodity_logic(self):
         blueprint = valid_blueprint(
             "Чем доступнее человек, тем меньше его выбирают.",
             "Чтобы вернуть ценность, нужно создать дефицит внимания.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertTrue(
+            any("товарную логику" in issue for issue in issues),
+            issues,
+        )
+
+    def test_blueprint_allows_price_of_a_choice_as_non_market_metaphor(self):
+        blueprint = valid_blueprint(
+            "Уступка может сохранить тишину, но не обязательно диалог.",
+            "Ценой такого подхода иногда становится отсутствие ясности "
+            "о собственной позиции.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertFalse(
+            any("товарную логику" in issue for issue in issues),
+            issues,
+        )
+
+    def test_blueprint_rejects_human_value_tied_to_availability(self):
+        blueprint = valid_blueprint(
+            "Чем недоступнее человек, тем сильнее его выбирают.",
+            "Доступность снижает ценность человека, поэтому нужно отдалиться.",
         )
 
         issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
@@ -163,7 +245,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             "- этическая граница: товар, дефицит, цена и инвестиции",
         )
 
-        finalized = telegram_team._finalize_blueprint(blueprint)
+        finalized = telegram_team._finalize_blueprint(blueprint, TOPIC)
         semantic = finalized.split("ЗАПРЕЩЕНО В ТЕКСТЕ:", 1)[0]
 
         self.assertNotIn("товар, дефицит", semantic)
@@ -172,6 +254,27 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             semantic,
         )
         self.assertEqual(1, finalized.count("ЗАПРЕЩЕНО В ТЕКСТЕ:"))
+        self.assertIn(
+            f"НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: {TOPIC}",
+            finalized,
+        )
+
+    def test_program_overwrites_model_written_topic_invariant(self):
+        blueprint = valid_blueprint(
+            "Новый хук.",
+            "Наблюдаемое различие.",
+        ).replace(
+            f"НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: {TOPIC}",
+            "НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: Соседняя тема о комфортной тишине",
+        )
+
+        finalized = telegram_team._finalize_blueprint(blueprint, TOPIC)
+
+        self.assertIn(
+            f"НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: {TOPIC}",
+            finalized,
+        )
+        self.assertNotIn("Соседняя тема", finalized)
 
     def test_contract_catches_real_rejected_generation(self):
         rejected = f"""{TOPIC}.
@@ -186,7 +289,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertTrue(any("исходную тему" in issue for issue in issues), issues)
         self.assertTrue(any("не смешивай" in issue for issue in issues), issues)
-        self.assertTrue(any("выдуманное событие" in issue for issue in issues), issues)
+        self.assertFalse(any("выдуманное событие" in issue for issue in issues), issues)
         self.assertTrue(any("товаром" in issue for issue in issues), issues)
         self.assertTrue(any("главным" in issue for issue in issues), issues)
 
@@ -368,7 +471,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         blockers = telegram_team.editorial_publication_blockers(TOPIC, text)
 
         self.assertIn("не смешивай обращения «ты» и «вы»", issues)
-        self.assertTrue(
+        self.assertFalse(
             any("придуманный признак охлаждения" in issue for issue in issues),
             issues,
         )
@@ -385,7 +488,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             any("не смешивай обращения" in issue for issue in blockers),
             blockers,
         )
-        self.assertTrue(
+        self.assertFalse(
             any("придуманный признак охлаждения" in issue for issue in blockers),
             blockers,
         )
@@ -393,6 +496,10 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
     def test_v3_prompts_bound_number_of_drafts(self):
         self.assertIn("Напиши один текст", telegram_team.SINGLE_WRITER_PROMPT)
+        self.assertIn(
+            "НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ",
+            telegram_team.SINGLE_WRITER_PROMPT,
+        )
         self.assertIn(
             "один раз",
             telegram_team.SINGLE_REPAIR_PROMPT,
@@ -402,8 +509,44 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             telegram_team.SINGLE_AUDIT_PROMPT,
         )
         self.assertIn(
+            "подменяет соседней темой",
+            telegram_team.SINGLE_AUDIT_PROMPT,
+        )
+        self.assertIn(
+            "за этим скрывается",
+            telegram_team.SINGLE_AUDIT_PROMPT,
+        )
+        self.assertIn(
             "Не возвращайся к сырым ответам NotebookLM",
             telegram_team.BLUEPRINT_REPAIR_PROMPT,
+        )
+        self.assertIn(
+            "разрешён один короткий художественный пример",
+            telegram_team.SINGLE_WRITER_PROMPT,
+        )
+        self.assertIn(
+            "Художественный пример допустим",
+            telegram_team.SINGLE_AUDIT_PROMPT,
+        )
+        self.assertIn(
+            "Можно сохранить или улучшить один художественный",
+            telegram_team.SINGLE_REPAIR_PROMPT,
+        )
+        self.assertIn(
+            "одно наблюдаемое действие",
+            telegram_team.SINGLE_WRITER_PROMPT,
+        )
+        self.assertIn(
+            "Художественный пример сохрани",
+            telegram_team.BLUEPRINT_REPAIR_PROMPT,
+        )
+        self.assertIn(
+            "художественная сцена выдана за реального клиента",
+            telegram_team.FINAL_REVIEW_PROMPT,
+        )
+        self.assertNotIn(
+            "никаких новых сцен",
+            telegram_team.SINGLE_REPAIR_PROMPT.lower(),
         )
 
 
