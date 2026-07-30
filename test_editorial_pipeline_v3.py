@@ -215,7 +215,8 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertIn("полные фразы средней длины", brief)
         self.assertIn("без цепочек обрывков", brief)
-        self.assertIn("не более пяти обращений", brief)
+        self.assertIn("одно обращение на «ты»", brief)
+        self.assertIn("без «вы»", brief)
         self.assertIn("завершённая разговорная фраза", brief)
         self.assertNotIn("резкий обрыв", brief)
 
@@ -341,6 +342,54 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             cleaned,
         )
         self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−-]")
+
+    def test_contract_catches_defects_from_second_real_generation(self):
+        text = """Бывает состояние острее, чем сам разрыв. Это момент, когда вы
+формально вместе, но ты себя в этих отношениях уже не находишь.
+
+Всё начинается с едва уловимого сдвига. Разговоры становятся короче, общие
+планы теряют ясность, а привычного тепла будто стало меньше. Вы ещё не
+расстались, но уже появилось ощущение, что тебя больше не выбирают по умолчанию.
+
+В ответ на эту тревожную тишину может появиться желание стать удобнее.
+Сглаживать острые углы и пытаться угадать желания партнёра.
+
+Со стороны это может выглядеть как работа над отношениями. Но вопрос как нам
+быть вместе превращается в вопрос что сделать, чтобы меня не оставили.
+
+Такая стратегия не имеет ничего общего со здоровым компромиссом, где двое
+меняются ради общего будущего. Один человек отказывается от своих потребностей
+и границ, чтобы отсрочить финал, который уже предчувствует.
+
+Задай себе вопрос. Я меняюсь ради будущего или удерживаю то, что уходит?
+Это отделяет заботу от самоотмены."""
+
+        issues = telegram_team.editorial_contract_issues(TOPIC, text)
+        blockers = telegram_team.editorial_publication_blockers(TOPIC, text)
+
+        self.assertIn("не смешивай обращения «ты» и «вы»", issues)
+        self.assertTrue(
+            any("придуманный признак охлаждения" in issue for issue in issues),
+            issues,
+        )
+        self.assertTrue(any("скрытый мотив" in issue for issue in issues), issues)
+        self.assertTrue(
+            any("дежурную психологическую лексику" in issue for issue in issues),
+            issues,
+        )
+        self.assertTrue(
+            any("абстрактные ярлыки" in issue for issue in issues),
+            issues,
+        )
+        self.assertTrue(
+            any("не смешивай обращения" in issue for issue in blockers),
+            blockers,
+        )
+        self.assertTrue(
+            any("придуманный признак охлаждения" in issue for issue in blockers),
+            blockers,
+        )
+        self.assertTrue(any("скрытый мотив" in issue for issue in blockers), blockers)
 
     def test_v3_prompts_bound_number_of_drafts(self):
         self.assertIn("Напиши один текст", telegram_team.SINGLE_WRITER_PROMPT)
