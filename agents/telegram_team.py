@@ -15,6 +15,40 @@ EDITOR_MODEL = os.environ.get("GEMINI_EDITOR_MODEL", "gemini-2.5-pro")
 WRITER_MODEL = os.environ.get("GEMINI_WRITER_MODEL", "gemini-2.5-pro")
 
 
+def _reasoning_call(
+    api_key: str,
+    primary_model: str,
+    system: str,
+    user_msg: str,
+    *,
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Use Pro reasoning, but never fail the pipeline on an empty thought-only response."""
+    try:
+        return gemini_call(
+            api_key,
+            primary_model,
+            system,
+            user_msg,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            disable_thinking=False,
+        )
+    except ValueError as exc:
+        if "пустой ответ" not in str(exc).lower() or primary_model == MODEL:
+            raise
+        return gemini_call(
+            api_key,
+            MODEL,
+            system,
+            user_msg,
+            max_tokens=max(5200, max_tokens),
+            temperature=temperature,
+            disable_thinking=False,
+        )
+
+
 def _notebook_context(role: str, live_context: str = "") -> str:
     """Use live Notebook guidance, with a strictly opt-in static fallback."""
     if live_context.strip():
@@ -641,7 +675,7 @@ def build_editorial_blueprint(
         "ОТВЕТЫ NOTEBOOKLM-ЭКСПЕРТОВ:\n"
         + expert_context
     )
-    blueprint = gemini_call(
+    blueprint = _reasoning_call(
         api_key,
         EDITOR_MODEL,
         EDITORIAL_BLUEPRINT_PROMPT
@@ -649,9 +683,8 @@ def build_editorial_blueprint(
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
-        max_tokens=5200,
+        max_tokens=6500,
         temperature=0.25,
-        disable_thinking=False,
     ).strip()
     return _finalize_blueprint(blueprint)
 
@@ -670,7 +703,7 @@ def repair_editorial_blueprint(
         "ОБЯЗАТЕЛЬНО УСТРАНИ:\n- "
         + "\n- ".join(issues)
     )
-    repaired = gemini_call(
+    repaired = _reasoning_call(
         api_key,
         EDITOR_MODEL,
         BLUEPRINT_REPAIR_PROMPT
@@ -678,9 +711,8 @@ def repair_editorial_blueprint(
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
-        max_tokens=5200,
+        max_tokens=6500,
         temperature=0.1,
-        disable_thinking=False,
     ).strip()
     return _finalize_blueprint(repaired)
 
@@ -757,7 +789,7 @@ def write_editorial_post(
             f"ПРАВКА ДМИТРИЯ:\n{user_feedback}\n"
             "Сохрани blueprint и измени только то, о чём попросил Дмитрий."
         )
-    return gemini_call(
+    return _reasoning_call(
         api_key,
         WRITER_MODEL,
         SINGLE_WRITER_PROMPT
@@ -765,9 +797,8 @@ def write_editorial_post(
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
-        max_tokens=4200,
+        max_tokens=7200,
         temperature=0.35,
-        disable_thinking=False,
     ).strip()
 
 
@@ -791,14 +822,13 @@ def audit_editorial_post(
             "\n\nАВТОМАТИЧЕСКИ НАЙДЕННЫЕ ДЕФЕКТЫ:\n- "
             + "\n- ".join(deterministic_issues)
         )
-    review = gemini_call(
+    review = _reasoning_call(
         api_key,
         EDITOR_MODEL,
         SINGLE_AUDIT_PROMPT + BRAND_BOUNDARY + _epistemic_guard(topic),
         user_msg,
-        max_tokens=2600,
+        max_tokens=4200,
         temperature=0.05,
-        disable_thinking=False,
     ).strip()
     first = review.splitlines()[0].upper() if review else ""
     return {
@@ -829,7 +859,7 @@ def repair_editorial_post(
             "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- "
             + "\n- ".join(deterministic_issues)
         )
-    return gemini_call(
+    return _reasoning_call(
         api_key,
         WRITER_MODEL,
         SINGLE_REPAIR_PROMPT
@@ -837,9 +867,8 @@ def repair_editorial_post(
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
-        max_tokens=4200,
+        max_tokens=7200,
         temperature=0.2,
-        disable_thinking=False,
     ).strip()
 
 

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agents import telegram_team
 
@@ -36,6 +37,28 @@ def valid_blueprint(hook: str, thesis: str) -> str:
 
 
 class EditorialPipelineV3Tests(unittest.TestCase):
+    def test_reasoning_call_falls_back_when_pro_returns_only_thoughts(self):
+        with patch(
+            "agents.telegram_team.gemini_call",
+            side_effect=[
+                ValueError("Gemini вернул пустой ответ"),
+                "готовый текст",
+            ],
+        ) as mocked:
+            result = telegram_team._reasoning_call(
+                "key",
+                "gemini-2.5-pro",
+                "system",
+                "user",
+                max_tokens=7200,
+                temperature=0.2,
+            )
+
+        self.assertEqual("готовый текст", result)
+        self.assertEqual("gemini-2.5-pro", mocked.call_args_list[0].args[1])
+        self.assertEqual(telegram_team.MODEL, mocked.call_args_list[1].args[1])
+        self.assertFalse(mocked.call_args_list[1].kwargs["disable_thinking"])
+
     def test_blueprint_rejects_relationship_commodity_logic(self):
         blueprint = valid_blueprint(
             "Чем доступнее человек, тем меньше его выбирают.",
