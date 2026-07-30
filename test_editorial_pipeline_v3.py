@@ -191,6 +191,45 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_publication_gate_does_not_discard_post_for_direct_address_count(self):
+        text = """Иногда попытка сохранить отношения превращается в постоянную
+подстройку. Ты всё чаще выбираешь удобный ответ. Тебе проще промолчать, твои
+желания откладываются, а твоё несогласие кажется лишним. Твой выбор сужается.
+
+Само по себе умение уступать здесь ни при чём. Гибкость может быть зрелым
+выбором. Разница появляется там, где у тебя остаётся возможность сказать,
+чего хочется, и выдержать ответ другого человека.
+
+Удобство не способно заставить кого-либо любить или разлюбить. Но постоянное
+отсутствие собственной позиции лишает отношения важной информации. Другой
+человек встречается уже не с живым выбором, а только с согласием.
+
+Количество уступок ничего не решает само по себе. Важнее, остаётся ли в каждой
+из них человек, который действительно выбирает."""
+
+        issues = telegram_team.editorial_contract_issues(TOPIC, text)
+        blockers = telegram_team.editorial_publication_blockers(TOPIC, text)
+
+        self.assertTrue(any("пяти" in issue for issue in issues), issues)
+        self.assertFalse(any("пяти" in issue for issue in blockers), blockers)
+
+    def test_publication_gate_keeps_relationship_commodity_logic_blocking(self):
+        text = """Иногда попытка сохранить отношения превращается в подстройку.
+Собственная позиция постепенно исчезает, а согласие становится единственным
+ответом. Это может выглядеть как гибкость, хотя выбора уже почти не остаётся.
+
+Человеческая ценность здесь устроена как цена товара. Нужно создать дефицит,
+чтобы партнёр снова начал вкладываться и выбирать. Доступность снижает цену,
+поэтому холодность возвращает интерес.
+
+Такой способ предлагает управлять вниманием другого человека, а не говорить о
+том, что происходит между людьми. В результате близость подменяется расчётом,
+а отношения становятся способом доказать собственную ценность."""
+
+        blockers = telegram_team.editorial_publication_blockers(TOPIC, text)
+
+        self.assertTrue(any("товаром" in issue for issue in blockers), blockers)
+
     def test_v3_prompts_bound_number_of_drafts(self):
         self.assertIn("Напиши один текст", telegram_team.SINGLE_WRITER_PROMPT)
         self.assertIn(

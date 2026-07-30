@@ -1792,6 +1792,34 @@ def blocking_structural_warnings(topic: str, text: str) -> list[str]:
     ]
 
 
+def editorial_publication_blockers(topic: str, text: str) -> list[str]:
+    """Return only defects that may still stop publication after one repair.
+
+    The full editorial contract is intentionally stricter: it gives the single
+    audit and repair pass useful style feedback. Once that bounded pass is
+    finished, preferences such as the exact number of second-person pronouns
+    must not create another editorial loop or discard an otherwise safe post.
+    """
+    clean = clean_human_surface(topic, text)
+    blockers = list(dict.fromkeys(
+        validate_post(clean)
+        + blocking_quality_warnings(clean)
+        + blocking_structural_warnings(topic, clean)
+    ))
+
+    hard_contract_prefixes = (
+        "исправь грамматику",
+        "убери выдуманное событие",
+        "не объясняй человеческую ценность",
+        "не предлагай почувствовать тело",
+        "не предлагай глубокий вдох",
+    )
+    for issue in editorial_contract_issues(topic, clean):
+        if issue.startswith(hard_contract_prefixes) and issue not in blockers:
+            blockers.append(issue)
+    return blockers
+
+
 def strategy_warnings(text: str) -> list[str]:
     """Hard signals that make a strategy unsafe before drafting starts."""
     lowered = text.lower()

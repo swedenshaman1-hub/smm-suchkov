@@ -576,7 +576,6 @@ async def _run_post_inner_v3(
         )
 
         final_text = draft
-        final_audit = audit
         if not audit["accepted"]:
             await msg.reply_text(
                 "Игорь нашёл блокирующий дефект. Маша исправляет этот же текст "
@@ -597,24 +596,26 @@ async def _run_post_inner_v3(
                 topic,
                 final_text,
             )
-            final_audit = await _run_blocking(
-                telegram_team.audit_editorial_post,
+            final_blockers = telegram_team.editorial_publication_blockers(
                 topic,
-                blueprint,
                 final_text,
-                ethics_context,
-                GEMINI_API_KEY,
-                final_issues,
             )
-            if final_issues or not final_audit["accepted"]:
-                reasons = final_issues or [final_audit["review"]]
+            if final_blockers:
                 await msg.reply_text(
                     "Ограниченный цикл завершён. Не публикую текст, который "
-                    "всё ещё нарушает контракт: "
-                    + "; ".join(reasons)
+                    "всё ещё содержит смысловой, фактический или брендовый риск: "
+                    + "; ".join(final_blockers)
                     + ". Нового автоматического переписывания не будет."
                 )
                 return
+            non_blocking_notes = [
+                issue for issue in final_issues if issue not in final_blockers
+            ]
+            if non_blocking_notes:
+                logger.info(
+                    "Non-blocking editorial notes after the single repair: %s",
+                    "; ".join(non_blocking_notes),
+                )
 
         memory_utils.register_published(
             topic,
