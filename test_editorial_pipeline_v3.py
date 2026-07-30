@@ -285,6 +285,46 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertTrue(any("товаром" in issue for issue in blockers), blockers)
 
+    def test_contract_catches_defects_from_latest_real_generation(self):
+        text = """В какой момент забота о другом превращается в отказ от себя?
+Эта граница часто стирается незаметно, когда в отношениях появляется холод.
+
+Когда возникает ощущение, что тебя больше не выбирают, первая мысль в башке —
+нужно срочно что-то исправить. Стать лучше, понятнее, удобнее. Это кажется
+логичным способом удержать связь.
+
+Но есть огромная разница между компромиссом ради двоих и односторонними
+уступками, в которых один человек постепенно исчезает.
+
+Забота — это усилие для контакта, даже если оно требует временных неудобств.
+А попытка стать удобнее — это желание избежать конфликта или молчания ценой
+собственных интересов и чувств.
+
+Такая стратегия не возвращает близость. Она создаёт иллюзию контакта, где
+партнёр общается уже не с живым человеком, а с удобной ролью.
+
+Конечно, бывают ситуации, когда партнёр проходит через объективно тяжёлый
+период вроде болезни или потери работы.
+
+Временно подстроиться под его нужды — это не стирание себя, а поддержка.
+
+Ключевое отличие в том, что это временный процесс, а не новый стандарт.
+
+Поэтому главный вопрос здесь не в том, любит ли он. Этот вопрос ведёт в тупик.
+
+Гораздо честнее спросить: остаётся ли собственная позиция в этих отношениях?
+Ответ отделяет заботу от самоотмены."""
+
+        issues = telegram_team.editorial_contract_issues(TOPIC, text)
+
+        self.assertTrue(any("шаблонный хук" in issue for issue in issues), issues)
+        self.assertTrue(any("скрытый мотив" in issue for issue in issues), issues)
+        self.assertTrue(any("не возвращает близость" in issue for issue in issues), issues)
+        self.assertTrue(any("мужской пол" in issue for issue in issues), issues)
+        self.assertTrue(any("речевой регистр" in issue for issue in issues), issues)
+        self.assertTrue(any("абстрактные ярлыки" in issue for issue in issues), issues)
+        self.assertTrue(any("6–9" in issue for issue in issues), issues)
+
     def test_v3_prompts_bound_number_of_drafts(self):
         self.assertIn("Напиши один текст", telegram_team.SINGLE_WRITER_PROMPT)
         self.assertIn(
