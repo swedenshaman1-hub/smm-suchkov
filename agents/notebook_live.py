@@ -22,7 +22,8 @@ from agents import team_registry
 BASE_URL = "https://notebook.google.com"
 AUTH_ENV = "NOTEBOOKLM_AUTH_B64"
 CACHE_TTL_SECONDS = 4 * 60 * 60
-PROMPT_VERSION = "2026-07-30-voice-isolation-v1"
+PROMPT_VERSION = "2026-07-30-editorial-blueprint-v1"
+QUERY_ATTEMPTS = 2
 
 REQUIRED_COOKIES = {"SID", "HSID", "SSID", "APISID", "SAPISID"}
 
@@ -98,8 +99,23 @@ class TopicContexts:
             if compound_key.split(":", 2)[1] in allowed_keys
         )
 
+    def without_roles(self, *roles: str) -> str:
+        """Return expert decisions except the named adviser roles.
+
+        The blueprint builder uses this to keep raw voice material out of
+        content strategy. Voice is distilled separately and can affect only
+        syntax, rhythm and diction.
+        """
+        excluded = set(roles)
+        return "\n\n".join(
+            answer
+            for compound_key, answer in self.answers.items()
+            if compound_key.split(":", 1)[0] not in excluded
+        )
+
 
 _cache: dict[str, tuple[float, TopicContexts]] = {}
+_answer_cache: dict[str, tuple[float, str]] = {}
 _cache_lock = threading.Lock()
 _last_success_at: float | None = None
 
@@ -169,10 +185,13 @@ def _patched_client_class():
 
         def _get_client(self) -> httpx.Client:
             if self._client is None:
+                http_timeout = float(
+                    os.environ.get("NOTEBOOKLM_HTTP_TIMEOUT", "60")
+                )
                 self._client = httpx.Client(
                     cookies=self._cookie_jar(),
                     headers=config.DEFAULT_HEADERS,
-                    timeout=config.DEFAULT_TIMEOUT,
+                    timeout=httpx.Timeout(http_timeout, connect=http_timeout),
                 )
             return self._client
 
@@ -213,38 +232,51 @@ def _patched_client_class():
 def _query_prompt(topic: str, adviser_role: str) -> str:
     common = (
         f"Рабочая тема Telegram-поста: «{topic}».\n"
-        "Опирайся только на источники этого блокнота. Не пиши готовый пост, "
-        "не выдумывай психологические факты, исследования, истории Дмитрия или "
-        "скрытые мотивы читателя. Ответ по-русски, конкретно, до 1200 знаков."
+        "Опирайся только на источники этого блокнота. Назови применённый принцип "
+        "из источников и отдельно сформулируй редакционное решение для этой темы. "
+        "Не пиши готовый пост, не выдумывай психологические факты, исследования, "
+        "истории Дмитрия или скрытые мотивы читателя. Если источники не дают "
+        "основания для вывода, прямо отметь границу. Ответ по-русски, до 1000 знаков."
     )
     instructions = {
         "audience": common + """
 
-Ты консультируешь автора только по копирайтингу и языку аудитории.
-Предложи: 1) три ясные человеческие формулировки темы; 2) два типа захода,
-способных удержать внимание без кликбейта; 3) слова и штампы, которых стоит
-избегать. Не делай выводов о психологии читателя.""",
+Ты консультируешь только по ясности и языку читателя, а не описываешь реальную
+аудиторию без её исследований. Ответ строго:
+ПРИНЦИП ИЗ ИСТОЧНИКОВ:
+ЧЕЛОВЕЧЕСКОЕ НАПРЯЖЕНИЕ ТЕМЫ:
+ТРИ ЯСНЫЕ ФОРМУЛИРОВКИ:
+ЧЕГО НЕЛЬЗЯ ПРИПИСЫВАТЬ ЧИТАТЕЛЮ:""",
         "angles": common + """
 
 Примени принципы Рори Сазерленда только как инструмент редакционного мышления.
-Дай пять действительно разных смысловых углов. Для каждого: тезис, честный
-парадокс, ограничение или контрпример. Выбери самый свежий угол, который не
-требует недоказанного объяснения психики.""",
+Дай три разных угла. Для каждого укажи: принцип из источников, тезис, свежий
+поворот, контрпример и риск ложной причинности. Не переноси рыночные модели
+дефицита, цены, инвестиций и ценности товара на достоинство человека или
+интимные отношения. Не советуй становиться менее доступным ради повышения
+своей ценности. Не выбирай победителя: окончательный выбор сделает главный
+редактор после этической проверки.""",
         "dramaturgy": common + """
 
-Примени принципы драматургии Нэнси Дуарте. Предложи компактную дугу Telegram-
-поста: как сейчас → противоречие → новое различение. Укажи, какая одна
-конкретная сцена допустима как условное наблюдение, где должен произойти
-поворот и как закончить без морализаторства.""",
+Примени принципы драматургии Нэнси Дуарте. Ответ строго:
+ПРИНЦИП ИЗ ИСТОЧНИКОВ:
+ИСХОДНОЕ ПРЕДСТАВЛЕНИЕ:
+ПРОТИВОРЕЧИЕ:
+НОВОЕ РАЗЛИЧЕНИЕ:
+ФИНАЛЬНЫЙ ЖЕСТ:
+Не придумывай сцену, сообщение, встречу или действия читателя. Если конкретных
+обстоятельств нет в теме, работай только с ходом мысли.""",
         "ethics": common + """
 
-Используй только этические принципы и разборы из этого блокнота. Проверь:
-1) манипуляцию, ложную причинность, чтение мыслей, давление страхом/виной и
-скрытый авторитет; 2) уважение достоинства и автономии человека; 3) честность
-условий, обещаний и ограничений; 4) справедливость обмена и риск эксплуатации
-уязвимости. Отдельно назови принцип из источников и свой вывод о его применении
-к этому тексту. Дай короткий список требований, при которых текст останется
-убедительным, но сохранит свободу выбора читателя.""",
+Используй этические принципы блокнота как право вето до написания текста.
+Ответ строго:
+ПРИНЦИП ИЗ ИСТОЧНИКОВ:
+ЭТИЧЕСКИЙ РИСК ТЕМЫ:
+ЗАПРЕЩЁННЫЕ ВЫВОДЫ:
+УСЛОВИЯ ЧЕСТНОГО ТЕЗИСА:
+Отдельно отклони превращение человека в товар, создание искусственного
+дефицита внимания, совет манипулировать доступностью, чтение намерений партнёра,
+стыд и утверждение единственной скрытой причины без данных.""",
         "voice": common + """
 
 Ты консультируешь только по слышимой форме речи Дмитрия, а не по содержанию
@@ -263,8 +295,12 @@ def _query_prompt(topic: str, adviser_role: str) -> str:
 фрагментами живой речи, не включай его.""",
         "human_text": common + """
 
-Выдели приёмы человеческого авторского текста, применимые к этой теме:
-естественный вход, ритм, конкретика и способ закончить без назидания.
+Выдели только редакционные приёмы человеческого текста. Ответ строго:
+ПРИНЦИП ИЗ ИСТОЧНИКОВ:
+ЕСТЕСТВЕННЫЙ ВХОД:
+РИТМ И КОНКРЕТИКА:
+СПОСОБ ЗАКОНЧИТЬ:
+ПЯТЬ ШТАМПОВ ПОД ЗАПРЕТОМ:
 Не копируй фразы автора источников и не подменяй голос Дмитрия чужим стилем.""",
         "short_dramaturgy": common + """
 
@@ -299,9 +335,11 @@ def _query_prompt(topic: str, adviser_role: str) -> str:
 смысл только ради метрик.""",
         "hooks": common + """
 
-Предложи пять разных первых фраз, каждая с иной механикой внимания: конкретное
-наблюдение, напряжение, вопрос, контраст, незавершённость. Хуки должны честно
-соответствовать тексту, без сенсации, обещания и чтения мыслей читателя.""",
+Предложи пять первых фраз с разной механикой: наблюдение, противоречие, точный
+вопрос, контраст, незавершённость. Не повторяй исходную тему или её первые
+восемь слов. Не выдумывай сцену от второго лица. Не используй сенсацию,
+обещание, диагноз и чтение мыслей. Для каждой фразы в трёх словах назови
+механику. Победителя выберет главный редактор после проверки всего каркаса.""",
         "founder_stories": common + """
 
 Предложи структуру правдивой истории основателя или автора: ставка, решение,
@@ -335,26 +373,68 @@ def _query_one(
     notebook: team_registry.NotebookSpec,
     prompt: str,
     cookies: dict[str, str],
+    attempts: int = QUERY_ATTEMPTS,
 ) -> tuple[str, str]:
     client_class = _patched_client_class()
     notebook_id = notebook.resolved_id()
     if not notebook_id:
         raise NotebookLiveError(f"для «{notebook.title}» не задан ID")
-    try:
-        with client_class(cookies=cookies, csrf_token="", session_id="") as client:
-            result = client.query(
-                notebook_id,
-                prompt,
-                timeout=float(os.environ.get("NOTEBOOKLM_QUERY_TIMEOUT", "120")),
-            )
-    except Exception as exc:
-        raise NotebookLiveError(
-            f"блокнот «{notebook.title}» не ответил: {exc}"
-        ) from exc
-    answer = (result.get("answer") or "").strip()
-    if not answer:
-        raise NotebookLiveError(f"блокнот «{notebook.title}» вернул пустой ответ")
-    return notebook.key, answer
+    timeout = float(os.environ.get("NOTEBOOKLM_QUERY_TIMEOUT", "120"))
+    last_error: Exception | None = None
+    attempts = max(1, attempts)
+    for attempt in range(1, attempts + 1):
+        try:
+            with client_class(cookies=cookies, csrf_token="", session_id="") as client:
+                result = client.query(notebook_id, prompt, timeout=timeout)
+            answer = (result.get("answer") or "").strip()
+            if not answer:
+                raise NotebookLiveError(
+                    f"блокнот «{notebook.title}» вернул пустой ответ"
+                )
+            return notebook.key, answer
+        except Exception as exc:
+            last_error = exc
+            if attempt >= attempts or not _is_retryable_query_error(exc):
+                break
+            time.sleep(0.75 * attempt)
+    raise NotebookLiveError(
+        f"блокнот «{notebook.title}» не ответил после "
+        f"{attempts if _is_retryable_query_error(last_error) else 1} "
+        f"попыток: {last_error}"
+    ) from last_error
+
+
+def _is_retryable_query_error(exc: Exception | None) -> bool:
+    """Retry only transient transport/server failures, never auth or bad data."""
+    if exc is None:
+        return False
+    if isinstance(
+        exc,
+        (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            TimeoutError,
+            ConnectionError,
+        ),
+    ):
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "timed out",
+            "timeout",
+            "handshake operation",
+            "connection reset",
+            "temporarily unavailable",
+            "server disconnected",
+            "status 429",
+            "status 500",
+            "status 502",
+            "status 503",
+            "status 504",
+        )
+    )
 
 
 def build_topic_context(
@@ -397,28 +477,82 @@ def build_topic_context(
         for notebook in configured
     }
     answers: dict[str, str] = {}
-    required_errors: list[str] = []
+    required_failures: list[tuple[team_registry.NotebookSpec, Exception]] = []
     skipped_errors: list[str] = list(skipped_unconfigured)
-    configured_workers = int(os.environ.get("NOTEBOOKLM_WORKERS", "6"))
-    workers = min(max(1, configured_workers), len(prompts))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(_query_one, notebook, prompts[notebook.key], cookies): notebook
-            for notebook in configured
-        }
-        for future in as_completed(futures):
-            notebook = futures[future]
-            try:
-                answer_key, answer = future.result()
-                compound_key = f"{notebook.adviser_role}:{answer_key}"
+    pending: list[team_registry.NotebookSpec] = []
+    now = time.time()
+    with _cache_lock:
+        for notebook in configured:
+            answer_key = (
+                f"{PROMPT_VERSION}|{notebook.resolved_id()}|"
+                f"{prompts[notebook.key]}"
+            )
+            cached_answer = _answer_cache.get(answer_key)
+            if cached_answer and now - cached_answer[0] < CACHE_TTL_SECONDS:
+                compound_key = f"{notebook.adviser_role}:{notebook.key}"
                 answers[compound_key] = (
-                    f"Источник: {notebook.title}\n{answer}"
+                    f"Источник: {notebook.title}\n{cached_answer[1]}"
                 )
-            except Exception as exc:
-                if notebook.is_required(route.mode):
-                    required_errors.append(f"{notebook.key}: {exc}")
-                else:
-                    skipped_errors.append(notebook.key)
+            else:
+                pending.append(notebook)
+
+    # Google becomes unreliable when many authenticated NotebookLM sessions
+    # negotiate TLS at once. Two workers keep the route bounded and stable.
+    configured_workers = int(os.environ.get("NOTEBOOKLM_WORKERS", "2"))
+    if pending:
+        workers = min(max(1, configured_workers), len(pending))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _query_one,
+                    notebook,
+                    prompts[notebook.key],
+                    cookies,
+                ): notebook
+                for notebook in pending
+            }
+            for future in as_completed(futures):
+                notebook = futures[future]
+                try:
+                    answer_key, answer = future.result()
+                    compound_key = f"{notebook.adviser_role}:{answer_key}"
+                    answers[compound_key] = (
+                        f"Источник: {notebook.title}\n{answer}"
+                    )
+                    cache_key = (
+                        f"{PROMPT_VERSION}|{notebook.resolved_id()}|"
+                        f"{prompts[notebook.key]}"
+                    )
+                    with _cache_lock:
+                        _answer_cache[cache_key] = (time.time(), answer)
+                except Exception as exc:
+                    if notebook.is_required(route.mode):
+                        required_failures.append((notebook, exc))
+                    else:
+                        skipped_errors.append(notebook.key)
+
+    # One calm sequential recovery pass for only the required notebooks that
+    # failed while other TLS sessions were active. This is the third and final
+    # transport attempt; it never restarts successful expert queries.
+    required_errors: list[str] = []
+    for notebook, _first_error in required_failures:
+        try:
+            answer_key, answer = _query_one(
+                notebook,
+                prompts[notebook.key],
+                cookies,
+                attempts=1,
+            )
+            compound_key = f"{notebook.adviser_role}:{answer_key}"
+            answers[compound_key] = f"Источник: {notebook.title}\n{answer}"
+            cache_key = (
+                f"{PROMPT_VERSION}|{notebook.resolved_id()}|"
+                f"{prompts[notebook.key]}"
+            )
+            with _cache_lock:
+                _answer_cache[cache_key] = (time.time(), answer)
+        except Exception as exc:
+            required_errors.append(f"{notebook.key}: {exc}")
 
     if required_errors:
         raise NotebookLiveError(

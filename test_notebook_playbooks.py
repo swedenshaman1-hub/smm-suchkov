@@ -80,7 +80,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
 
         self.assertTrue(any("скрытый мотив" in item for item in blockers))
 
-    def test_human_surface_removes_topic_quotes_and_typographic_dashes(self):
+    def test_human_surface_removes_topic_quotes_and_preserves_grammar(self):
         topic = "Когда решение перестаёт быть твоим"
         raw = (
             "Когда решение перестаёт быть твоим\n"
@@ -92,8 +92,16 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertFalse(clean.startswith(topic))
         self.assertNotIn("«", clean)
         self.assertNotIn("»", clean)
-        self.assertNotIn("—", clean)
+        self.assertIn("—", clean)
         self.assertIn("по-прежнему", clean)
+
+    def test_human_surface_removes_double_sentence_punctuation(self):
+        clean = telegram_team.clean_human_surface(
+            "Тема",
+            "Что происходит?. Это уже закончилось!.",
+        )
+
+        self.assertEqual("Что происходит? Это уже закончилось!", clean)
 
     def test_rejected_control_post_exposes_structural_defects(self):
         topic = (

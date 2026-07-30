@@ -122,7 +122,8 @@ def _already_processed(chat_id: int, message_id: int) -> bool:
 SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
     "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
-    "last_pipeline_mode", "last_hook_brief",
+    "last_pipeline_mode", "last_hook_brief", "last_blueprint", "last_voice_brief",
+    "last_ethics_context",
 ]
 
 # Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
@@ -411,7 +412,7 @@ async def _run_post(msg: Message, topic: str, user_data: dict, feedback: str = N
         return
     _active_pipelines.add(chat_id)
     try:
-        await _run_post_inner(msg, topic, user_data, feedback)
+        await _run_post_inner_v3(msg, topic, user_data, feedback)
     finally:
         _active_pipelines.discard(chat_id)
 
@@ -422,6 +423,247 @@ class _StopPipeline(Exception):
     Сообщение пользователю уже отправлено до raise, здесь просто прекращаем работу
     без лишнего "Ошибка: ..." от общего except Exception ниже."""
     pass
+
+
+async def _run_post_inner_v3(
+    msg: Message,
+    topic: str,
+    user_data: dict,
+    feedback: str = None,
+):
+    """Bounded expert pipeline: notebooks → blueprint → one draft → one audit."""
+    route = team_registry.route_for(topic)
+    reuse_previous = bool(
+        feedback
+        and user_data.get("last_post_topic") == topic
+        and user_data.get("last_blueprint")
+        and user_data.get("last_voice_brief")
+        and user_data.get("last_final_tg")
+    )
+    try:
+        if reuse_previous:
+            await msg.reply_text(
+                "Сохраняю утверждённый экспертный blueprint. "
+                "Меняю только то, о чём ты попросил."
+            )
+            blueprint = user_data["last_blueprint"]
+            voice_brief = user_data["last_voice_brief"]
+            ethics_context = user_data.get("last_ethics_context", "")
+            expert_context = user_data.get("last_analysis", blueprint)
+            selected_notebooks = ()
+        else:
+            await msg.reply_text(
+                f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
+                f"Режим: {team_registry.MODE_LABELS[route.mode]}.\n"
+                "Сначала NotebookLM-эксперты принимают решения каждый в своей "
+                "области. Затем один главред фиксирует blueprint, один автор "
+                "пишет один текст. Максимум одна содержательная правка."
+            )
+            await msg.reply_text(
+                "NotebookLM — собираю раздельные решения по языку, углу, "
+                "драматургии, хуку, этике и голосу..."
+            )
+            try:
+                notebook_contexts = await _run_blocking(
+                    notebook_live.build_topic_context,
+                    topic,
+                    route.mode,
+                )
+            except notebook_live.NotebookLiveError as exc:
+                await msg.reply_text(
+                    "Останавливаюсь до написания текста: живой маршрут "
+                    f"NotebookLM не прошёл.\n\nПричина: {exc}\n\n"
+                    "Скрытой подмены обычным Gemini не будет."
+                )
+                return
+
+            selected_notebooks = notebook_contexts.selected_notebooks
+            await msg.reply_text(
+                "NotebookLM — решения получены: "
+                + ", ".join(selected_notebooks)
+                + "."
+                + (
+                    "\nНеобязательные источники пропущены: "
+                    + ", ".join(notebook_contexts.skipped_optional)
+                    if notebook_contexts.skipped_optional
+                    else ""
+                )
+            )
+
+            # Raw ethics language is intentionally excluded from creation:
+            # it often names the very market metaphors it forbids. Ethics gets
+            # the finished text as a veto, never ownership of the thesis.
+            expert_context = notebook_contexts.without_roles("voice", "ethics")
+            ethics_context = notebook_contexts.ethics
+            await msg.reply_text(
+                "Главред — свожу экспертные решения в один неизменяемый "
+                "blueprint и разрешаю конфликты в пользу этики и честности..."
+            )
+            blueprint = await _run_blocking(
+                telegram_team.build_editorial_blueprint,
+                topic,
+                expert_context,
+                GEMINI_API_KEY,
+                route.mode,
+            )
+            blueprint_issues = telegram_team.blueprint_contract_issues(
+                topic,
+                blueprint,
+            )
+            if blueprint_issues:
+                await msg.reply_text(
+                    "Главред — автоматическое этическое вето отклонило первый "
+                    "каркас. Исправляю каркас один раз до написания текста..."
+                )
+                blueprint = await _run_blocking(
+                    telegram_team.repair_editorial_blueprint,
+                    topic,
+                    blueprint,
+                    blueprint_issues,
+                    GEMINI_API_KEY,
+                    route.mode,
+                )
+                blueprint_issues = telegram_team.blueprint_contract_issues(
+                    topic,
+                    blueprint,
+                )
+                if blueprint_issues:
+                    await msg.reply_text(
+                        "Не запускаю автора: экспертный каркас после одной "
+                        "коррекции всё ещё нарушает контракт: "
+                        + "; ".join(blueprint_issues)
+                        + "."
+                    )
+                    return
+
+            await msg.reply_text(
+                "Даша — извлекаю из SMM-06 только ритм, синтаксис и лексику. "
+                "Содержание блокнота в пост не попадёт..."
+            )
+            voice_brief = await _run_blocking(
+                telegram_team.build_voice_brief,
+                topic,
+                notebook_contexts.voice,
+                GEMINI_API_KEY,
+            )
+
+        await msg.reply_text(
+            "Маша — пишу один пост по утверждённому blueprint..."
+        )
+        draft = await _run_blocking(
+            telegram_team.write_editorial_post,
+            topic,
+            blueprint,
+            voice_brief,
+            GEMINI_API_KEY,
+            user_data.get("last_final_tg", "") if reuse_previous else "",
+            feedback or "",
+        )
+        draft = telegram_team.clean_human_surface(topic, draft)
+        draft_issues = telegram_team.editorial_contract_issues(topic, draft)
+
+        await msg.reply_text(
+            "Игорь — провожу один аудит смысла, этики, хука и завершённости..."
+        )
+        audit = await _run_blocking(
+            telegram_team.audit_editorial_post,
+            topic,
+            blueprint,
+            draft,
+            ethics_context,
+            GEMINI_API_KEY,
+            draft_issues,
+        )
+
+        final_text = draft
+        final_audit = audit
+        if not audit["accepted"]:
+            await msg.reply_text(
+                "Игорь нашёл блокирующий дефект. Маша исправляет этот же текст "
+                "один раз. Новых вариантов и редакционных кругов не будет..."
+            )
+            final_text = await _run_blocking(
+                telegram_team.repair_editorial_post,
+                topic,
+                blueprint,
+                draft,
+                audit["review"],
+                voice_brief,
+                GEMINI_API_KEY,
+                draft_issues,
+            )
+            final_text = telegram_team.clean_human_surface(topic, final_text)
+            final_issues = telegram_team.editorial_contract_issues(
+                topic,
+                final_text,
+            )
+            final_audit = await _run_blocking(
+                telegram_team.audit_editorial_post,
+                topic,
+                blueprint,
+                final_text,
+                ethics_context,
+                GEMINI_API_KEY,
+                final_issues,
+            )
+            if final_issues or not final_audit["accepted"]:
+                reasons = final_issues or [final_audit["review"]]
+                await msg.reply_text(
+                    "Ограниченный цикл завершён. Не публикую текст, который "
+                    "всё ещё нарушает контракт: "
+                    + "; ".join(reasons)
+                    + ". Нового автоматического переписывания не будет."
+                )
+                return
+
+        memory_utils.register_published(
+            topic,
+            angle=blueprint[:300],
+            formats=["telegram_post"],
+        )
+        if feedback:
+            for agent_id in ("copywriter", "editor", "humanizer"):
+                mem = memory_utils.load(agent_id)
+                memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
+                memory_utils.save(agent_id, mem)
+
+        user_data["last_post_topic"] = topic
+        user_data["last_analysis"] = expert_context[:10000]
+        user_data["last_strategy"] = blueprint
+        user_data["last_hook_brief"] = blueprint
+        user_data["last_blueprint"] = blueprint
+        user_data["last_voice_brief"] = voice_brief
+        user_data["last_ethics_context"] = ethics_context
+        user_data["last_final_tg"] = final_text
+        user_data["last_final_ig_post"] = ""
+        user_data["last_pipeline_mode"] = "post"
+        user_data["pending_ig_sections"] = {}
+        user_data["waiting_feedback"] = False
+        _persist_session(msg.chat_id, user_data)
+
+        await msg.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━"
+        )
+        await _send(msg, final_text)
+        await msg.reply_text(
+            "Если нужна правка — нажми кнопку и напиши, что изменить. "
+            "Blueprint и смысловой угол сохранятся.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Доработать пост", callback_data="revise")
+            ]]),
+        )
+    except Exception as exc:
+        logger.exception("Ошибка в bounded expert Telegram pipeline")
+        if (
+            "503" in str(exc)
+            or "UNAVAILABLE" in str(exc)
+            or "overloaded" in str(exc).lower()
+        ):
+            await msg.reply_text(
+                "Gemini временно перегружен. Повтори тему через пару минут."
+            )
+        else:
+            await msg.reply_text(f"Ошибка: {exc}")
 
 
 async def _run_post_inner(msg: Message, topic: str, user_data: dict, feedback: str = None):

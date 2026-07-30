@@ -11,6 +11,8 @@ from agents import memory_utils, notebook_playbooks
 
 
 MODEL = "gemini-2.5-flash"
+EDITOR_MODEL = os.environ.get("GEMINI_EDITOR_MODEL", "gemini-2.5-pro")
+WRITER_MODEL = os.environ.get("GEMINI_WRITER_MODEL", "gemini-2.5-pro")
 
 
 def _notebook_context(role: str, live_context: str = "") -> str:
@@ -411,6 +413,137 @@ FINAL_REVIEW_PROMPT = """Ты — Света, финальный контрол�
 ФИНАЛ: ДОРАБОТАТЬ
 Далее — до пяти коротких конкретных замечаний. Не предлагай новые факты или психологические объяснения."""
 
+EDITORIAL_BLUEPRINT_PROMPT = """Ты — главный редактор и архитектор смысла.
+Перед тобой ответы разных NotebookLM-экспертов на одну тему. Они не являются
+готовым текстом и не имеют равного права на окончательное решение.
+
+Твоя задача — один раз собрать неизменяемый редакционный blueprint. После этого
+ни хук-редактор, ни автор, ни консультант по голосу не смогут поменять тезис.
+
+Иерархия решений:
+1. Достоинство человека, этика и фактическая честность.
+2. Исходная боль и вопрос пользователя.
+3. Ясный тезис и логическое развитие.
+4. Драматургия и удержание внимания.
+5. Красивость, вирусность и эффект неожиданности.
+
+Если свежий угол конфликтует с этикой, откажись от угла. Для тем отношений
+запрещено объяснять ценность человека дефицитом, доступностью, ценой,
+инвестициями, конкуренцией, усилием выбора или логикой товара. Нельзя советовать
+становиться холоднее или менее доступным, чтобы другой снова начал выбирать.
+Не читай мысли партнёра и не объявляй отношения законченными по одному признаку.
+
+Не придумывай сцену, сообщение, диалог, клиента, исследование или механизм
+психики. Не повторяй тему как хук. Если тема сформулирована слишком уверенно,
+сохрани её боль, но сделай тезис честнее и точнее.
+
+Формат строго:
+КАРКАС: ГОТОВ
+ОБЕЩАНИЕ ЧИТАТЕЛЮ:
+ТЕЗИС:
+ЭКСПЕРТНАЯ ОПОРА:
+- язык и ясность:
+- смысловой поворот:
+- драматургия:
+- этическая граница:
+ХУК:
+ЛОГИКА:
+1.
+2.
+3.
+КОНТРПРИМЕР ИЛИ ГРАНИЦА:
+ФИНАЛ:
+ЗАПРЕЩЕНО В ТЕКСТЕ:
+
+Хук должен быть новым, коротким и честным. Логика должна идти вперёд, а не
+пересказывать один тезис разными метафорами. Blueprint — не пост."""
+
+VOICE_BRIEF_V2_PROMPT = """Ты — Даша, редактор авторского голоса.
+Из ответов NotebookLM извлеки только форму живой речи Дмитрия. Не обсуждай тему,
+отношения, психологию, тело, энергию, терапию, факты и смысл будущего поста.
+
+Верни ровно пять коротких настроек:
+1. длина и ритм фраз;
+2. синтаксис и переходы;
+3. разговорная лексика;
+4. дистанция с читателем;
+5. способ закончить.
+
+Затем одной строкой:
+НЕ ИМИТИРОВАТЬ:
+Перечисли не более пяти искусственных речевых привычек. Не пиши примеры поста."""
+
+SINGLE_WRITER_PROMPT = """Ты — Маша, единственный автор Telegram-поста.
+Напиши один текст по утверждённому blueprint. Не выбирай новый угол, не меняй
+тезис и не добавляй знаний, которых нет в blueprint.
+
+Требования:
+- 1050–1500 знаков с пробелами, 6–9 естественных абзацев;
+- первые одна или две фразы реализуют хук, но не копируют исходную тему;
+- каждый абзац добавляет новый логический шаг;
+- без заголовка, служебных меток, хэштегов, кавычек и типографских тире;
+- один способ обращения: либо «ты», либо безличная форма; не смешивай «ты» и «вы»;
+- максимум пять явных обращений к читателю;
+- не разыгрывай выдуманный эпизод: никаких отправленных сообщений, встреч,
+  кабинетов, созвонов, реплик и действий, которых нет во входе;
+- не объясняй мотивы партнёра и не назначай читателю чувства;
+- не сравнивай человека с товаром, книгой, украшением, ценой, дефицитом или
+  объектом инвестиций;
+- без тела, энергии, внутренних компасов, механизмов, сигналов и терапии;
+- без формул «это не про X, это про Y», «на самом деле», «важно понимать»,
+  «позволь себе», «вернуться к себе», «новые горизонты»;
+- последнее предложение грамматически завершено и даёт ясное различение, а не
+  приказ и не обещание.
+
+Настройки голоса влияют только на язык. Они не могут менять blueprint.
+Верни только готовый пост."""
+
+SINGLE_AUDIT_PROMPT = """Ты — Игорь, единственный выпускающий редактор.
+Не переписывай пост. Сравни один черновик с утверждённым blueprint и этическим
+заключением NotebookLM.
+
+Проверь только блокирующие дефекты:
+1. Хук новый, а не скопированная тема.
+2. Тезис и три логических шага blueprint сохранены.
+3. Нет выдуманной сцены, чтения мыслей и единственной скрытой причины.
+4. Человек не превращён в товар; нет совета создавать дефицит или заставлять
+   другого вкладываться ради собственной ценности.
+5. Один способ обращения, живой язык, нет AI-штампов.
+6. Финал отвечает теме и грамматически завершён.
+
+Первая строка строго:
+АУДИТ: ПРИНЯТО
+или
+АУДИТ: ИСПРАВИТЬ
+
+Если нужна правка, перечисли максимум пять конкретных дефектов. Не предлагай
+новый угол, новый хук или новый полный текст.
+
+Не требуй кавычек: автор намеренно пишет без них. Не требуй убрать грамматическое
+тире. Безличная форма и существительные «человек», «партнёр», «люди» не являются
+сменой обращения; смешением считается только одновременное обращение к читателю
+на «ты» и на «вы». Не блокируй выпуск из-за вкусовой пунктуации или ритма, если
+фраза грамматически понятна."""
+
+SINGLE_REPAIR_PROMPT = """Ты — Маша, автор одного текста.
+Черновик не прошёл один ограниченный аудит. Исправь его один раз и только по
+перечисленным замечаниям. Устрани дефекты и верни окончательный пост.
+Blueprint, тезис и логика неизменны.
+
+Не латай отдельные фразы так, чтобы ломалась грамматика. Пересобери нужный абзац
+целиком. Длина 1000–1500 знаков. Никаких новых сцен, причин, метафор, советов,
+фактов или психологических объяснений. Настройки голоса меняют только форму.
+Верни только готовый пост."""
+
+WRITER_ADDENDUM = """
+
+Грамматика важнее стилизации. Пиши в основном полными фразами средней длины.
+Короткая фраза допустима для одного акцента, но не строй из обрывков несколько
+предложений подряд. Не имитируй устную речь ошибочными запятыми. Если blueprint
+смешивает «ты» и «вы», выбери одну форму и нормализуй весь текст. Не используй
+формулу «это не про...». Сохраняй грамматическое тире, если без него фраза
+становится ошибочной; не используй тире как декоративную привычку."""
+
 
 def build_voice_samples(posts: list, limit: int = 5) -> str:
     """Build a compact style-only reference from real channel publications."""
@@ -430,6 +563,284 @@ def build_voice_samples(posts: list, limit: int = 5) -> str:
     if not samples:
         return ""
     return "\n\n--- РЕАЛЬНЫЙ ПОСТ ---\n".join(samples)
+
+
+BLUEPRINT_CREATION_ADDENDUM = """
+
+Дополнительный контракт каркаса:
+- Не переноси в каркас причинные объяснения про мозг, психику, тело,
+  нервную систему, защитный механизм, когнитивную ловушку, страх или вину.
+  Если эксперт предложил такое объяснение без проверяемого источника,
+  оставь только наблюдаемое различие и границу вывода.
+- Чувство, что человека не выбирают, не доказывает намерения партнёра,
+  конец отношений или неизбежность расставания.
+- В строке «этическая граница» напиши только: «не приписывать партнёру
+  мотивы и отделять наблюдаемое от вывода». Не перечисляй там запретные
+  метафоры и термины.
+- Финал должен дать точное различие или проверочный вопрос. Не приказывай
+  расстаться, выбрать себя, вернуть себя или двигаться дальше.
+- Раздел «ЗАПРЕЩЕНО В ТЕКСТЕ» не заполняй: программа добавит его сама.
+"""
+
+BLUEPRINT_REPAIR_PROMPT = """Ты — выпускающий редактор каркаса.
+Перед тобой уже выбранный blueprint и список конкретных нарушений. Исправь
+этот blueprint один раз. Не возвращайся к сырым ответам NotebookLM и не
+выбирай новый угол.
+
+Удаляй недоказанную причину без замены на другую причину. Вместо неё оставляй
+наблюдаемое различие, границу знания или проверочный вопрос. Не используй
+объяснения через мозг, психику, тело, нервную систему, защитный механизм,
+когнитивную ловушку, страх, вину или потребность контролировать.
+
+Для отношений запрещены товар, продукт, цена, дефицит, доступность,
+инвестиции, конкуренция, оптимизация человека и логика рынка. Чувство
+невыбора не доказывает, что партнёр уже уходит или отношения закончены.
+Финал не должен приказывать расстаться, выбрать себя, вернуть себя или
+двигаться дальше.
+
+Сохрани все обязательные разделы исходного blueprint. В строке «этическая
+граница» напиши только: «не приписывать партнёру мотивы и отделять
+наблюдаемое от вывода». Раздел «ЗАПРЕЩЕНО В ТЕКСТЕ» не заполняй.
+Верни только исправленный blueprint."""
+
+BLUEPRINT_GUARDRAILS = """ЗАПРЕЩЕНО В ТЕКСТЕ:
+- приписывать партнёру мотивы или объявлять отношения законченными по одному признаку;
+- придумывать сцену, сообщение, диалог, клиента, исследование или механизм психики;
+- объяснять ценность человека через рынок, дефицит, доступность, цену или инвестиции;
+- советовать становиться холоднее или менее доступным ради чужого выбора;
+- повторять тему как хук;
+- позиционировать Дмитрия как соматического терапевта или соматотерапевта;
+- строить пост вокруг лечения, исцеления, диагностики или клинической услуги."""
+
+
+def _finalize_blueprint(blueprint: str) -> str:
+    """Replace model-written restrictions with one immutable program guard."""
+    clean = re.split(
+        r"(?im)^ЗАПРЕЩЕНО В ТЕКСТЕ:",
+        blueprint.strip(),
+        maxsplit=1,
+    )[0].rstrip()
+    clean = re.sub(
+        r"(?im)^-\s*этическая граница:.*$",
+        "- этическая граница: не приписывать партнёру мотивы и отделять "
+        "наблюдаемое от вывода",
+        clean,
+    )
+    return f"{clean}\n{BLUEPRINT_GUARDRAILS}"
+
+
+def build_editorial_blueprint(
+    topic: str,
+    expert_context: str,
+    api_key: str,
+    mode: str = "editorial",
+) -> str:
+    """Synthesize NotebookLM decisions once; later roles cannot change meaning."""
+    user_msg = (
+        f"Режим: {mode}\nТема пользователя: «{topic}»\n\n"
+        "ОТВЕТЫ NOTEBOOKLM-ЭКСПЕРТОВ:\n"
+        + expert_context
+    )
+    blueprint = gemini_call(
+        api_key,
+        EDITOR_MODEL,
+        EDITORIAL_BLUEPRINT_PROMPT
+        + BLUEPRINT_CREATION_ADDENDUM
+        + BRAND_BOUNDARY
+        + _epistemic_guard(topic),
+        user_msg,
+        max_tokens=5200,
+        temperature=0.25,
+        disable_thinking=False,
+    ).strip()
+    return _finalize_blueprint(blueprint)
+
+
+def repair_editorial_blueprint(
+    topic: str,
+    blueprint: str,
+    issues: list[str],
+    api_key: str,
+    mode: str = "editorial",
+) -> str:
+    """Repair the chosen blueprint once without reopening expert ideation."""
+    user_msg = (
+        f"Режим: {mode}\nТема пользователя: «{topic}»\n\n"
+        f"ИСХОДНЫЙ BLUEPRINT:\n{blueprint}\n\n"
+        "ОБЯЗАТЕЛЬНО УСТРАНИ:\n- "
+        + "\n- ".join(issues)
+    )
+    repaired = gemini_call(
+        api_key,
+        EDITOR_MODEL,
+        BLUEPRINT_REPAIR_PROMPT
+        + BLUEPRINT_CREATION_ADDENDUM
+        + BRAND_BOUNDARY
+        + _epistemic_guard(topic),
+        user_msg,
+        max_tokens=5200,
+        temperature=0.1,
+        disable_thinking=False,
+    ).strip()
+    return _finalize_blueprint(repaired)
+
+
+def _finalize_voice_brief(brief: str) -> str:
+    """Keep voice advice from overriding address limits or the final meaning."""
+    brief = re.sub(
+        r"(?im)^1\..*$",
+        "1. длина и ритм фраз: преимущественно полные фразы средней длины; "
+        "короткие только для редкого акцента",
+        brief,
+    )
+    brief = re.sub(
+        r"(?im)^2\..*$",
+        "2. синтаксис и переходы: естественная устная грамматика без цепочек "
+        "обрывков и повторяющихся союзов в начале",
+        brief,
+    )
+    brief = re.sub(
+        r"(?im)^4\..*$",
+        "4. дистанция с читателем: преимущественно безличная форма; "
+        "не более пяти обращений на «ты»",
+        brief,
+    )
+    brief = re.sub(
+        r"(?im)^5\..*$",
+        "5. способ закончить: завершённая разговорная фраза, которая "
+        "точно выражает финальное различие blueprint",
+        brief,
+    )
+    return brief
+
+
+def build_voice_brief(
+    topic: str,
+    notebook_context: str,
+    api_key: str,
+) -> str:
+    """Distil voice sources before writing, without exposing their subject matter."""
+    user_msg = (
+        f"Тема дана только для выбора уместной степени прямоты: «{topic}».\n\n"
+        "ОТВЕТЫ БЛОКНОТОВ О ФОРМЕ ТЕКСТА:\n"
+        + notebook_context
+    )
+    brief = gemini_call(
+        api_key,
+        MODEL,
+        VOICE_BRIEF_V2_PROMPT + BRAND_BOUNDARY,
+        user_msg,
+        max_tokens=500,
+        temperature=0.1,
+        disable_thinking=True,
+    ).strip()
+    return _finalize_voice_brief(brief)
+
+
+def write_editorial_post(
+    topic: str,
+    blueprint: str,
+    voice_brief: str,
+    api_key: str,
+    previous_text: str = "",
+    user_feedback: str = "",
+) -> str:
+    """Write one draft. No variants and no raw NotebookLM context."""
+    user_msg = (
+        f"Исходная тема: «{topic}»\n\n"
+        f"УТВЕРЖДЁННЫЙ BLUEPRINT:\n{blueprint}\n\n"
+        f"НАСТРОЙКИ ГОЛОСА:\n{voice_brief}"
+    )
+    if previous_text and user_feedback:
+        user_msg += (
+            f"\n\nПРЕДЫДУЩИЙ ТЕКСТ:\n{previous_text}\n\n"
+            f"ПРАВКА ДМИТРИЯ:\n{user_feedback}\n"
+            "Сохрани blueprint и измени только то, о чём попросил Дмитрий."
+        )
+    return gemini_call(
+        api_key,
+        WRITER_MODEL,
+        SINGLE_WRITER_PROMPT
+        + WRITER_ADDENDUM
+        + BRAND_BOUNDARY
+        + _epistemic_guard(topic),
+        user_msg,
+        max_tokens=4200,
+        temperature=0.35,
+        disable_thinking=False,
+    ).strip()
+
+
+def audit_editorial_post(
+    topic: str,
+    blueprint: str,
+    text: str,
+    ethics_context: str,
+    api_key: str,
+    deterministic_issues: list[str] | None = None,
+) -> dict:
+    """One non-writing audit. It may authorize at most one repair."""
+    user_msg = (
+        f"Исходная тема: «{topic}»\n\n"
+        f"УТВЕРЖДЁННЫЙ BLUEPRINT:\n{blueprint}\n\n"
+        f"ТЕКСТ:\n{text}\n\n"
+        f"ЭТИЧЕСКОЕ ЗАКЛЮЧЕНИЕ NOTEBOOKLM:\n{ethics_context}"
+    )
+    if deterministic_issues:
+        user_msg += (
+            "\n\nАВТОМАТИЧЕСКИ НАЙДЕННЫЕ ДЕФЕКТЫ:\n- "
+            + "\n- ".join(deterministic_issues)
+        )
+    review = gemini_call(
+        api_key,
+        EDITOR_MODEL,
+        SINGLE_AUDIT_PROMPT + BRAND_BOUNDARY + _epistemic_guard(topic),
+        user_msg,
+        max_tokens=2600,
+        temperature=0.05,
+        disable_thinking=False,
+    ).strip()
+    first = review.splitlines()[0].upper() if review else ""
+    return {
+        "accepted": "АУДИТ: ПРИНЯТО" in first and not deterministic_issues,
+        "review": review,
+    }
+
+
+def repair_editorial_post(
+    topic: str,
+    blueprint: str,
+    text: str,
+    audit_review: str,
+    voice_brief: str,
+    api_key: str,
+    deterministic_issues: list[str] | None = None,
+) -> str:
+    """The only permitted semantic rewrite after the initial draft."""
+    user_msg = (
+        f"Исходная тема: «{topic}»\n\n"
+        f"НЕИЗМЕНЯЕМЫЙ BLUEPRINT:\n{blueprint}\n\n"
+        f"ЧЕРНОВИК:\n{text}\n\n"
+        f"АУДИТ ИГОРЯ:\n{audit_review}\n\n"
+        f"НАСТРОЙКИ ГОЛОСА:\n{voice_brief}"
+    )
+    if deterministic_issues:
+        user_msg += (
+            "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- "
+            + "\n- ".join(deterministic_issues)
+        )
+    return gemini_call(
+        api_key,
+        WRITER_MODEL,
+        SINGLE_REPAIR_PROMPT
+        + WRITER_ADDENDUM
+        + BRAND_BOUNDARY
+        + _epistemic_guard(topic),
+        user_msg,
+        max_tokens=4200,
+        temperature=0.2,
+        disable_thinking=False,
+    ).strip()
 
 
 def research(topic: str, api_key: str, notebook_context: str = "") -> str:
@@ -714,10 +1125,11 @@ def clean_human_surface(topic: str, text: str) -> str:
     )
     clean = clean.replace("**", "").replace("__", "")
 
-    # Preserve grammatical hyphens inside words, but remove typographic dashes
-    # and spaced minus signs that make generated Russian prose look artificial.
-    clean = re.sub(r"\s+[—–]\s+", ", ", clean)
-    clean = re.sub(r"\s+-\s+", ", ", clean)
+    # Preserve grammatical dashes; replacing them blindly corrupts syntax.
+    # Decorative overuse is prevented by the writer contract instead.
+    clean = re.sub(r"\s+[—–]\s+", " — ", clean)
+    clean = re.sub(r"\s+-\s+", " — ", clean)
+    clean = re.sub(r"([!?])\.", r"\1", clean)
     clean = re.sub(r"\s*,\s*,+\s*", ", ", clean)
     clean = re.sub(r"[ \t]+([,.;:!?])", r"\1", clean)
     clean = re.sub(r"[ \t]{2,}", " ", clean)
@@ -910,12 +1322,227 @@ def validate_post(text: str) -> list[str]:
     return errors
 
 
+def editorial_contract_issues(topic: str, text: str) -> list[str]:
+    """Deterministic publication contract for the bounded editorial pipeline."""
+    raw = text.strip()
+    clean = clean_human_surface(topic, text)
+    lowered = clean.lower()
+    raw_lowered = raw.lower()
+    topic_lower = (topic or "").lower()
+    issues: list[str] = []
+
+    if len(clean) < 850:
+        issues.append("раскрой мысль до 850–1500 знаков")
+    if len(clean) > 1800:
+        issues.append("сократи текст до 1500 знаков без нового смыслового круга")
+
+    topic_words = re.findall(r"[а-яё0-9]+", topic_lower)
+    text_words = re.findall(r"[а-яё0-9]+", raw_lowered)
+    prefix_size = min(8, len(topic_words))
+    if prefix_size >= 5 and text_words[:prefix_size] == topic_words[:prefix_size]:
+        issues.append("не копируй исходную тему в качестве хука")
+
+    has_ty = bool(re.search(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|твоё|твои|твоего|твою)\b", lowered))
+    has_vy = bool(re.search(r"\b(?:вы|вас|вам|вами|ваш|ваша|ваше|ваши|вашего|вашу)\b", lowered))
+    if has_ty and has_vy:
+        issues.append("не смешивай обращения «ты» и «вы»")
+
+    second_person = len(re.findall(
+        r"\b(?:ты|тебя|тебе|тобой|твой|твоя|твоё|твои|"
+        r"вы|вас|вам|вами|ваш|ваша|ваше|ваши)\b",
+        lowered,
+    ))
+    if second_person > 5:
+        issues.append("оставь не более пяти явных обращений к читателю")
+
+    if re.search(r"\w+\([а-яё]\)", lowered):
+        issues.append("убери машинную гендерную заглушку в скобках")
+    if re.search(
+        r"\b(?:ты|тебя|тебе|твой|твоя|твоё)\b[^.!?]{0,120}"
+        r"\b(?:была|готова|согласилась|решила|отстаивала|подумала|сделала)\b",
+        lowered,
+    ):
+        issues.append(
+            "убери женскую форму из обращения к смешанной аудитории"
+        )
+    if re.search(r"\bреакци\w*\s*,\s*не\s+\w+ть\b", lowered):
+        issues.append(
+            "исправь грамматику конструкции «реакция, не сделать»"
+        )
+
+    invented_second_person_event = (
+        r"\b(?:ты|вы)\s+(?:сидел\w*|стоял\w*|перечитывал\w*|написал\w*|"
+        r"отправил\w*|удалил\w*|убрал\w*|открыл\w*|ждал\w*|смотрел\w*|"
+        r"согласил\w*|положил\w*|взял\w*)\b"
+    )
+    if re.search(invented_second_person_event, lowered):
+        issues.append("убери выдуманное событие из жизни читателя")
+
+    if re.search(r"\bпредстав(?:ь|ьте)\b", lowered):
+        issues.append("не разыгрывай читателя через команду «представьте»")
+
+    relationship_topic = bool(
+        re.search(r"\b(?:отношен|любов|партн[её]р|близост|расставан)\w*", topic_lower)
+    )
+    commodity_patterns = (
+        r"\b(?:книг|украшен|товар|продукт|ценник|магазин)\w*.{0,180}"
+        r"\b(?:цен|доступ|выбира|усили|вкладыва)\w*|"
+        r"\b(?:цен|доступ|выбира|усили|вкладыва)\w*.{0,180}"
+        r"\b(?:книг|украшен|товар|продукт|ценник|магазин)\w*|"
+        r"\bсозда\w*.{0,50}\bдефицит\w*|"
+        r"\b(?:слишком|всегда)\s+доступн\w*.{0,100}\b(?:цен|выбира)\w*|"
+        r"\bзастав\w*.{0,80}\bвкладыва\w*"
+    )
+    if relationship_topic and re.search(commodity_patterns, lowered, re.DOTALL):
+        issues.append(
+            "не объясняй человеческую ценность товаром, дефицитом или усилием выбора"
+        )
+
+    forbidden_surface = {
+        "убери формулу «на самом деле»": r"\bна\s+самом\s+деле\b",
+        "убери формулу «вернуться/вернуть внимание к себе»": r"\bверн\w*.{0,45}\b(?:к\s+себе|внимани\w*\s+к\s+себе)\b",
+        "убери штамп «новые горизонты»": r"\bнов\w*\s+горизонт\w*\b",
+        "убери штамп «внутри бушует буря»": r"\bвнутри\b.{0,35}\bбур[яеи]\b",
+        "не предлагай почувствовать тело": r"\bпочувств\w*.{0,25}\bтел\w*\b",
+        "не предлагай глубокий вдох как универсальное решение": r"\bглубок\w*\s+вдох\w*\b",
+    }
+    for message, pattern in forbidden_surface.items():
+        if re.search(pattern, lowered, re.DOTALL):
+            issues.append(message)
+
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?…])\s+", clean)
+        if part.strip()
+    ]
+    if sentences and re.match(
+        r"^(?:чтобы|потому\s+что|хотя|если|когда|пока|поскольку|так\s+как)\b",
+        sentences[-1].lower(),
+    ):
+        issues.append("заверши финальную мысль главным, а не придаточным предложением")
+
+    issues.extend(validate_post(clean))
+    issues.extend(quality_warnings(clean))
+    issues.extend(structural_warnings(topic, clean))
+    return list(dict.fromkeys(issues))
+
+
+def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
+    """Reject a bad angle before the author can turn it into prose."""
+    clean = blueprint.strip()
+    lowered = clean.lower()
+    topic_lower = (topic or "").lower()
+    issues: list[str] = []
+
+    required_labels = (
+        "КАРКАС: ГОТОВ",
+        "ОБЕЩАНИЕ ЧИТАТЕЛЮ:",
+        "ТЕЗИС:",
+        "ЭКСПЕРТНАЯ ОПОРА:",
+        "ХУК:",
+        "ЛОГИКА:",
+        "КОНТРПРИМЕР ИЛИ ГРАНИЦА:",
+        "ФИНАЛ:",
+        "ЗАПРЕЩЕНО В ТЕКСТЕ:",
+    )
+    for label in required_labels:
+        if label.casefold() not in clean.casefold():
+            issues.append(f"в blueprint отсутствует раздел «{label}»")
+
+    hook_match = re.search(
+        r"(?ims)^ХУК:\s*(.+?)(?=^ЛОГИКА:)",
+        clean,
+    )
+    if hook_match:
+        topic_words = re.findall(r"[а-яё0-9]+", topic_lower)
+        hook_words = re.findall(r"[а-яё0-9]+", hook_match.group(1).lower())
+        prefix_size = min(8, len(topic_words))
+        if prefix_size >= 5 and hook_words[:prefix_size] == topic_words[:prefix_size]:
+            issues.append("blueprint копирует исходную тему вместо нового хука")
+
+    relationship_topic = bool(
+        re.search(r"\b(?:отношен|любов|партн[её]р|близост|расставан)\w*", topic_lower)
+    )
+    semantic_blueprint = re.split(
+        r"(?im)^ЗАПРЕЩЕНО В ТЕКСТЕ:",
+        lowered,
+        maxsplit=1,
+    )[0]
+    has_market_frame = bool(re.search(
+        r"\b(?:товар|продукт|дефицит|инвестиц|украшен|книг)\w*",
+        semantic_blueprint,
+    ))
+    human_price_frame = bool(re.search(
+        r"\b(?:цен[ауы]|ценност)\w*.{0,90}"
+        r"\b(?:человек|партн[её]р|выбира|доступ)\w*|"
+        r"\b(?:человек|партн[её]р|выбира|доступ)\w*.{0,90}"
+        r"\b(?:цен[ауы]|ценност)\w*",
+        semantic_blueprint,
+    ))
+    applies_to_relationship = bool(re.search(
+        r"\b(?:человек|отношен|партн[её]р|выбира|доступ|вкладыва)\w*",
+        semantic_blueprint,
+    ))
+    if (
+        relationship_topic
+        and (has_market_frame or human_price_frame)
+        and applies_to_relationship
+    ):
+        issues.append(
+            "blueprint переносит товарную логику или искусственный дефицит на отношения"
+        )
+
+    unsupported_mechanism = re.search(
+        r"\b(?:мозг|психик|нервн\w*\s+систем|когнитивн\w*\s+ловуш|"
+        r"защитн\w*\s+механизм|инерци\w*\s+страх|минимизир\w*\s+вин)\w*",
+        semantic_blueprint,
+    )
+    if unsupported_mechanism:
+        issues.append(
+            "blueprint подменяет наблюдение недоказанным психологическим механизмом"
+        )
+    if re.search(
+        r"\b(?:алиби|неосознан|внутренн\w*\s+оправдани|"
+        r"иллюзи\w*\s+контрол|продиктован\w*\s+(?:тревог|страх)|"
+        r"чтобы\s+не\s+провоцир)\w*",
+        semantic_blueprint,
+    ):
+        issues.append(
+            "blueprint приписывает человеку скрытый мотив, вину, тревогу или оправдание"
+        )
+    if re.search(
+        r"\b(?:уже\s+уход|угасш\w*\s+чувств|окончательн\w*\s+уход)\w*",
+        semantic_blueprint,
+    ):
+        issues.append(
+            "blueprint выдаёт ощущение дистанции за доказанный уход или угасшие чувства"
+        )
+    if re.search(
+        r"\b(?:партн[её]р|друг\w*\s+человек)\b.{0,90}"
+        r"\b(?:уже\s+уход|перестал\w*\s+выбира|отношени\w*\s+закончен)\w*",
+        semantic_blueprint,
+    ):
+        issues.append(
+            "blueprint выдаёт ощущение невыбора за доказанное решение партнёра"
+        )
+    if hook_match and re.search(
+        r"\b(?:секунд\w*|минут\w*|месяц\w*|год\w*)\b",
+        hook_match.group(1).lower(),
+    ):
+        issues.append(
+            "хук использует выдуманную временную точность вместо честного напряжения"
+        )
+
+    issues.extend(strategy_warnings(clean))
+    return list(dict.fromkeys(issues))
+
+
 def quality_warnings(text: str) -> list[str]:
     """Cheap deterministic signals for patterns the editorial pass must revisit."""
     clean = text.strip()
     warnings = []
     patterns = {
-        "убери конструкцию «это не про..., это про...»": r"это\s+не\s+про.{0,80}это\s+про",
+        "убери конструкцию «это не про..., это про...»": r"это\s+не\s+про.{0,300}это\s+про",
         "убери шаблон «давай честно»": r"\bдавай(?:те)?\s+честно\b",
         "убери шаблон «вот в чём штука/засада»": r"\bвот\s+в\s+ч[её]м\s+(?:штука|засада)\b",
         "убери шаблон «если узнаёшь себя»": r"\bесли\s+узна[её]шь\s+себя\b",
@@ -1051,6 +1678,11 @@ def structural_warnings(topic: str, text: str) -> list[str]:
         r"\bпроект\w*\b": ("проект", "убери выдуманный проект"),
     }
     for pattern, (topic_marker, message) in invented_contexts.items():
+        if topic_marker == "партн" and re.search(
+            r"\b(?:отношен|любов|близост|расставан)\w*",
+            topic_lower,
+        ):
+            continue
         if topic_marker not in topic_lower and re.search(pattern, lowered):
             warnings.append(message + ": этого контекста нет в теме")
 

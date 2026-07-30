@@ -83,7 +83,48 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("Не объясняй рабочую тему", prompt)
         self.assertIn("темы головы и", prompt)
         self.assertIn("тела, энергии, терапии", prompt)
-        self.assertIn("voice-isolation", notebook_live.PROMPT_VERSION)
+        self.assertIn("editorial-blueprint", notebook_live.PROMPT_VERSION)
+
+    def test_blueprint_context_excludes_raw_voice(self):
+        contexts = notebook_live.TopicContexts(
+            mode=team_registry.EDITORIAL,
+            answers={
+                "angles:smm03a_angles": "Смысловые углы",
+                "ethics:smm12_ethical_boundaries": "Этическое вето",
+                "human_text:smm02c_human_text": "Человеческий текст",
+                "voice:smm06_voice": "Сырая речь Дмитрия",
+            },
+            selected_notebooks=(
+                "smm03a_angles",
+                "smm12_ethical_boundaries",
+                "smm02c_human_text",
+                "smm06_voice",
+            ),
+        )
+
+        blueprint_context = contexts.without_roles("voice", "ethics")
+
+        self.assertIn("Смысловые углы", blueprint_context)
+        self.assertIn("Человеческий текст", blueprint_context)
+        self.assertNotIn("Этическое вето", blueprint_context)
+        self.assertNotIn("Сырая речь Дмитрия", blueprint_context)
+
+    def test_only_transient_notebook_errors_are_retried(self):
+        self.assertTrue(
+            notebook_live._is_retryable_query_error(
+                TimeoutError("The handshake operation timed out")
+            )
+        )
+        self.assertTrue(
+            notebook_live._is_retryable_query_error(
+                RuntimeError("status 503: temporarily unavailable")
+            )
+        )
+        self.assertFalse(
+            notebook_live._is_retryable_query_error(
+                RuntimeError("authentication cookies expired")
+            )
+        )
 
 
 if __name__ == "__main__":

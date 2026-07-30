@@ -2,6 +2,7 @@
 Утилиты для работы с Gemini API (google-genai SDK)
 """
 import time
+import httpx
 from google import genai
 from google.genai import types
 
@@ -32,7 +33,34 @@ def gemini_call(api_key: str, model: str, system: str, user_msg: str,
                 raise ValueError("Gemini вернул пустой ответ (вероятно, исчерпан лимит токенов на 'размышления')")
             return response.text
         except Exception as e:
-            if ("503" in str(e) or "UNAVAILABLE" in str(e)) and attempt < attempts - 1:
-                time.sleep(10 * (attempt + 1))
+            message = str(e).lower()
+            transient = isinstance(
+                e,
+                (
+                    httpx.TimeoutException,
+                    httpx.NetworkError,
+                    TimeoutError,
+                    ConnectionError,
+                ),
+            ) or any(
+                marker in message
+                for marker in (
+                    "503",
+                    "unavailable",
+                    "429",
+                    "500",
+                    "502",
+                    "504",
+                    "timed out",
+                    "timeout",
+                    "unexpected_eof",
+                    "unexpected eof",
+                    "ssl",
+                    "connection reset",
+                    "server disconnected",
+                )
+            )
+            if transient and attempt < attempts - 1:
+                time.sleep(2 * (attempt + 1))
                 continue
             raise

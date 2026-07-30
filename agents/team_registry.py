@@ -113,7 +113,7 @@ AGENTS = (
     AgentSpec(
         "strategist",
         "Артём Волков",
-        "Смысловой угол, центральный тезис и драматическая дуга",
+        "Главред blueprint: сводит решения NotebookLM и один раз фиксирует тезис, хук, логику и границы",
         20,
         TASK_MODES,
     ),
@@ -134,7 +134,7 @@ AGENTS = (
     AgentSpec(
         "writer",
         "Маша Лебедева",
-        "Варианты и единственная окончательная сборка Telegram-текста",
+        "Один Telegram-текст по утверждённому blueprint; максимум одна исправленная версия",
         30,
         TASK_MODES,
     ),
@@ -148,7 +148,7 @@ AGENTS = (
     AgentSpec(
         "editor",
         "Игорь Орлов",
-        "Выбор версии и не более трёх обязательных содержательных правок",
+        "Один аудит смысла, этики, хука и завершённости; не переписывает текст",
         40,
         TASK_MODES,
     ),
@@ -169,8 +169,8 @@ AGENTS = (
     AgentSpec(
         "voice",
         "Даша Козлова",
-        "Короткие рекомендации по голосу; не переписывает готовый текст",
-        50,
+        "До написания извлекает из SMM-06 только ритм, синтаксис и лексику",
+        25,
         TASK_MODES,
     ),
     AgentSpec(
@@ -459,12 +459,7 @@ def route_summary(text: str, explicit_mode: str | None = None) -> str:
     # planning and community roles are available to /pack and other commands,
     # but listing them here made the ordinary Telegram route look as if every
     # agent rewrote the same text.
-    telegram_keys = {
-        "researcher", "strategist", "hook_editor", "writer", "editor",
-        "voice", "publisher"
-    }
-    if route.mode == COMMERCIAL:
-        telegram_keys.update({"marketer", "offer_architect"})
+    telegram_keys = {"strategist", "voice", "writer", "editor"}
     chain = " → ".join(
         agent.name for agent in route.agents if agent.key in telegram_keys
     )
