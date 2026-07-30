@@ -1497,6 +1497,19 @@ def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
         lowered,
         maxsplit=1,
     )[0]
+    # A boundary may name a claim only to reject it (for example, "нельзя
+    # считать, что это продиктовано тревогой"). Do not mistake that wording
+    # for the blueprint's own causal assertion.
+    assertive_blueprint = re.sub(
+        r"(?ims)^КОНТРПРИМЕР ИЛИ ГРАНИЦА:.*?(?=^ФИНАЛ:)",
+        "",
+        semantic_blueprint,
+    )
+    assertive_blueprint = re.sub(
+        r"(?im)^-\s*этическая граница:.*$",
+        "",
+        assertive_blueprint,
+    )
     has_market_frame = bool(re.search(
         r"\b(?:товар|продукт|дефицит|инвестиц|украшен|книг)\w*",
         semantic_blueprint,
@@ -1524,7 +1537,7 @@ def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
     unsupported_mechanism = re.search(
         r"\b(?:мозг|психик|нервн\w*\s+систем|когнитивн\w*\s+ловуш|"
         r"защитн\w*\s+механизм|инерци\w*\s+страх|минимизир\w*\s+вин)\w*",
-        semantic_blueprint,
+        assertive_blueprint,
     )
     if unsupported_mechanism:
         issues.append(
@@ -1534,7 +1547,7 @@ def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
         r"\b(?:алиби|неосознан|внутренн\w*\s+оправдани|"
         r"иллюзи\w*\s+контрол|продиктован\w*\s+(?:тревог|страх)|"
         r"чтобы\s+не\s+провоцир)\w*",
-        semantic_blueprint,
+        assertive_blueprint,
     ):
         issues.append(
             "blueprint приписывает человеку скрытый мотив, вину, тревогу или оправдание"
@@ -1564,6 +1577,40 @@ def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
 
     issues.extend(strategy_warnings(clean))
     return list(dict.fromkeys(issues))
+
+
+def blueprint_publication_blockers(issues: list[str]) -> list[str]:
+    """Keep the repaired blueprint bounded without hiding serious risks.
+
+    Unsupported causal wording is still passed to the writer and auditor as a
+    program-level prohibition, but it no longer starts another blueprint loop.
+    Broken schema and unsafe relationship conclusions remain hard blockers.
+    """
+    hard_markers = (
+        "отсутствует раздел",
+        "товарную логику",
+        "доказанный уход",
+        "доказанное решение партнёра",
+    )
+    return [
+        issue
+        for issue in issues
+        if any(marker in issue for marker in hard_markers)
+    ]
+
+
+def add_blueprint_cautions(blueprint: str, issues: list[str]) -> str:
+    """Turn remaining soft blueprint issues into higher-priority exclusions."""
+    if not issues:
+        return blueprint
+    return (
+        blueprint.rstrip()
+        + "\n\nПРОГРАММНАЯ ОГОВОРКА К КАРКАСУ:\n"
+        + "- "
+        + "\n- ".join(issues)
+        + "\nФразы, соответствующие этим замечаниям, не являются частью тезиса. "
+        "Автор обязан оставить наблюдаемое различие без объяснения скрытой причины."
+    )
 
 
 def quality_warnings(text: str) -> list[str]:

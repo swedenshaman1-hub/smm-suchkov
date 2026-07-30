@@ -528,13 +528,28 @@ async def _run_post_inner_v3(
                     blueprint,
                 )
                 if blueprint_issues:
-                    await msg.reply_text(
-                        "Не запускаю автора: экспертный каркас после одной "
-                        "коррекции всё ещё нарушает контракт: "
-                        + "; ".join(blueprint_issues)
-                        + "."
+                    blueprint_blockers = (
+                        telegram_team.blueprint_publication_blockers(
+                            blueprint_issues
+                        )
                     )
-                    return
+                    if blueprint_blockers:
+                        await msg.reply_text(
+                            "Не запускаю автора: экспертный каркас после одной "
+                            "коррекции всё ещё содержит опасный смысловой риск: "
+                            + "; ".join(blueprint_blockers)
+                            + "."
+                        )
+                        return
+                    blueprint = telegram_team.add_blueprint_cautions(
+                        blueprint,
+                        blueprint_issues,
+                    )
+                    await msg.reply_text(
+                        "Главред — спорная причинная формулировка не запускает "
+                        "новый круг. Программа запрещает переносить её в текст "
+                        "и оставляет только наблюдаемое различие..."
+                    )
 
             await msg.reply_text(
                 "Даша — извлекаю из SMM-06 только ритм, синтаксис и лексику. "

@@ -99,6 +99,61 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             issues,
         )
 
+    def test_blueprint_allows_rejected_motive_named_only_as_boundary(self):
+        blueprint = valid_blueprint(
+            "Удобство иногда выглядит как близость, пока не исчезает несогласие.",
+            "Постоянное согласие может скрыть собственную позицию.",
+        ).replace(
+            "Гибкость и забота могут быть зрелым выбором, если собственная позиция не исчезает.",
+            "Нельзя считать, что такая уступчивость обязательно продиктована тревогой.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertFalse(
+            any("скрытый мотив" in issue for issue in issues),
+            issues,
+        )
+
+    def test_blueprint_rejects_hidden_motive_inside_thesis(self):
+        blueprint = valid_blueprint(
+            "Удобство иногда выглядит как близость, пока не исчезает несогласие.",
+            "Постоянная уступчивость продиктована тревогой потерять отношения.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertTrue(
+            any("скрытый мотив" in issue for issue in issues),
+            issues,
+        )
+
+    def test_soft_blueprint_issue_becomes_caution_instead_of_blocker(self):
+        issues = [
+            "blueprint приписывает человеку скрытый мотив, вину, тревогу или оправдание"
+        ]
+
+        self.assertEqual(
+            [],
+            telegram_team.blueprint_publication_blockers(issues),
+        )
+        cautioned = telegram_team.add_blueprint_cautions(
+            valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+            issues,
+        )
+        self.assertIn("ПРОГРАММНАЯ ОГОВОРКА К КАРКАСУ", cautioned)
+        self.assertIn(issues[0], cautioned)
+
+    def test_unsafe_relationship_blueprint_remains_blocking(self):
+        issues = [
+            "blueprint переносит товарную логику или искусственный дефицит на отношения"
+        ]
+
+        self.assertEqual(
+            issues,
+            telegram_team.blueprint_publication_blockers(issues),
+        )
+
     def test_program_replaces_model_written_blueprint_guardrails(self):
         blueprint = valid_blueprint(
             "Удобство иногда выглядит как близость, пока не исчезает несогласие.",
