@@ -243,6 +243,29 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             issues,
         )
 
+    def test_blueprint_answers_means_question_with_explicit_uncertainty(self):
+        topic = (
+            "После честного разговора стало тяжелее. Означает ли это, "
+            "что разговор был ошибкой?"
+        )
+        unsafe = valid_blueprint(
+            "После разговора стало тяжелее.",
+            "Тяжесть показывает, что близость требует времени.",
+        ).replace(TOPIC, topic).replace(
+            "Различить взаимную заботу и одностороннее исчезновение из отношений.",
+            "Тяжесть означает, что разговор открыл важную правду.",
+        )
+        safe = unsafe.replace(
+            "Тяжесть означает, что разговор открыл важную правду.",
+            "Не обязательно: сама тяжесть не доказывает, что разговор был ошибкой.",
+        )
+
+        unsafe_issues = telegram_team.blueprint_contract_issues(topic, unsafe)
+        safe_issues = telegram_team.blueprint_contract_issues(topic, safe)
+
+        self.assertTrue(any("не отвечает честно" in issue for issue in unsafe_issues))
+        self.assertFalse(any("не отвечает честно" in issue for issue in safe_issues))
+
     def test_blueprint_rejects_human_value_tied_to_availability(self):
         blueprint = valid_blueprint(
             "Чем недоступнее человек, тем сильнее его выбирают.",
