@@ -526,6 +526,10 @@ EDITORIAL_BLUEPRINT_PROMPT = """Ты — главный редактор и ар
 VOICE_BRIEF_V2_PROMPT = """Ты — Даша, редактор авторского голоса.
 Из ответов NotebookLM извлеки только форму живой речи Дмитрия. Не обсуждай тему,
 отношения, психологию, тело, энергию, терапию, факты и смысл будущего поста.
+Не предлагай копировать отдельный сленг, междометия, слова «башка», «блин»,
+«головастики», профессиональное позиционирование, биографические детали,
+эзотерическую, телесную или энергетическую лексику. Наблюдение о голосе должно
+описывать воспроизводимый приём формы, а не отдельное заметное словечко.
 
 Верни ровно пять коротких настроек:
 1. длина и ритм фраз;
@@ -1029,38 +1033,137 @@ def repair_editorial_blueprint(
 
 
 def _finalize_voice_brief(brief: str) -> str:
-    """Keep voice advice from overriding address limits or the final meaning."""
-    brief = re.sub(
-        r"(?im)^1\..*$",
-        "1. длина и ритм фраз: преимущественно полные фразы средней длины; "
-        "короткие только для редкого акцента",
-        brief,
+    """Preserve safe SMM-06 observations without importing source content."""
+    fallbacks = {
+        1: (
+            "длина и ритм фраз: преимущественно полные фразы средней длины; "
+            "короткие только для редкого акцента"
+        ),
+        2: (
+            "синтаксис и переходы: естественная устная грамматика без цепочек "
+            "обрывков и повторяющихся союзов в начале"
+        ),
+        3: (
+            "разговорная лексика: простая и современная, без одиночного "
+            "жаргона, который выбивается из общего регистра"
+        ),
+        4: "дистанция с читателем: тёплое прямое общение без назидания",
+        5: "способ закончить: ясное разговорное различение без лозунга",
+    }
+    content_pattern = re.compile(
+        r"\b(?:отношени\w*|партн[её]р\w*|психолог\w*|психик\w*|"
+        r"травм\w*|механизм\w*|скрыт\w*\s+причин\w*|"
+        r"тел(?:о|а|у|ом|е)\b|телесн\w*|голов\w*|энерг\w*|"
+        r"терап\w*|сомат\w*|эзотер\w*|медитац\w*|духовн\w*|"
+        r"лечени\w*|диагноз\w*|исцелен\w*|тантр\w*|шаман\w*|"
+        r"рейк\w*|клиент\w*|развод\w*|биограф\w*|грузоперевоз\w*|"
+        r"случа[йя]\s+из\s+(?:моей\s+)?практик\w*|"
+        r"дмитри\w*|(?:после\s+)?\w+\s+лет\s+жизн\w*|"
+        r"пятнадцать\s+лет|швец\w*|бывш\w*\s+жен\w*|"
+        r"дет(?:и|ей|ям|ьми|ях)\b)\b",
+        re.IGNORECASE,
     )
-    brief = re.sub(
-        r"(?im)^2\..*$",
-        "2. синтаксис и переходы: естественная устная грамматика без цепочек "
-        "обрывков и повторяющихся союзов в начале",
-        brief,
+    slang_pattern = re.compile(
+        r"\b(?:башк\w*|бошк\w*|блин\w*|головастик\w*)\b",
+        re.IGNORECASE,
     )
-    brief = re.sub(
-        r"(?im)^3\..*$",
-        "3. разговорная лексика: простая и современная, но без одиночного "
-        "жаргона, который выбивается из общего регистра",
-        brief,
+    conflict_pattern = re.compile(
+        r"\b(?:вы|вас|вам|вами|ваш\w*|на\s+вы|"
+        r"переход\w*\s+на\s+вы|обращ\w*\s+на\s+вы|"
+        r"кажд\w*\s+абзац\w*|в\s+кажд\w*\s+абзац\w*|"
+        r"обрыв\w*|оборван\w*|без\s+вывод\w*|без\s+завершени\w*|"
+        r"резк\w*\s+обрыв\w*|внезапн\w*\s+обрыв\w*|"
+        r"открыт\w*\s+финал\w*|финал\w*\s+открыт\w*|"
+        r"многоточи\w*|незаверш\w*|недосказ\w*|"
+        r"называ\w*\s+люд\w*)\b",
+        re.IGNORECASE,
     )
-    brief = re.sub(
-        r"(?im)^4\..*$",
-        "4. дистанция с читателем: тёплое прямое общение; без «вы»; "
-        "два–пять естественных обращений на «ты», но не в каждом абзаце",
-        brief,
+
+    raw_rules: dict[int, list[str]] = {index: [] for index in range(1, 6)}
+    raw_avoid: list[str] = []
+    current: int | str | None = None
+    for raw_line in (brief or "").splitlines():
+        line = raw_line.strip()
+        numbered = re.match(
+            r"^(?:\*{0,2})?([1-5])[\.)]\s*(?:\*{0,2})?\s*(.*)$",
+            line,
+        )
+        avoid = re.match(
+            r"^(?:\*{0,2})?НЕ\s+ИМИТИРОВАТЬ\s*:\s*"
+            r"(?:\*{0,2})?\s*(.*)$",
+            line,
+            re.IGNORECASE,
+        )
+        if numbered:
+            current = int(numbered.group(1))
+            if numbered.group(2).strip():
+                raw_rules[current].append(numbered.group(2).strip())
+            continue
+        if avoid:
+            current = "avoid"
+            if avoid.group(1).strip():
+                raw_avoid.append(avoid.group(1).strip())
+            continue
+        if line and isinstance(current, int):
+            raw_rules[current].append(line)
+        elif line and current == "avoid":
+            raw_avoid.append(line)
+
+    def clean_rule(value: str, index: int) -> str:
+        safe_parts: list[str] = []
+        for part in re.split(r";|(?<=[.!?])\s+", value):
+            candidate = " ".join(part.split()).strip(" \t,.:;-")
+            if not candidate or content_pattern.search(candidate):
+                continue
+            candidate = slang_pattern.sub("", candidate)
+            candidate = re.sub(r"\s+", " ", candidate).strip(" \t,.:;-")
+            if (
+                not candidate
+                or conflict_pattern.search(candidate)
+                or re.search(r"\bфраз\w*\s+(?:и|$)", candidate, re.IGNORECASE)
+                or len(re.findall(r"[а-яёa-z0-9]+", candidate, re.IGNORECASE)) < 3
+            ):
+                continue
+            safe_parts.append(candidate)
+        return "; ".join(safe_parts) or fallbacks[index]
+
+    finalized = [
+        f"{index}. {clean_rule(' '.join(raw_rules[index]), index)}"
+        for index in range(1, 6)
+    ]
+
+    safe_avoid: list[str] = [
+        "одиночный жаргон",
+        "терминологию и биографические детали источников",
+        "книжные абстракции",
+    ]
+    for item in re.split(r"[,;]", " ".join(raw_avoid)):
+        candidate = " ".join(item.split()).strip(" \t,.:;-")
+        if not candidate or content_pattern.search(candidate):
+            continue
+        candidate = slang_pattern.sub("", candidate)
+        candidate = re.sub(r"\s+", " ", candidate).strip(" \t,.:;-")
+        if candidate and candidate.casefold() not in {
+            existing.casefold() for existing in safe_avoid
+        }:
+            safe_avoid.append(candidate)
+        if len(safe_avoid) == 5:
+            break
+
+    finalized.extend(
+        (
+            "ОГРАНИЧЕНИЕ АДРЕСАЦИИ: без «вы»; во всём тексте допустимы "
+            "два–пять естественных обращений на «ты»; нельзя начинать с "
+            "обращения каждый абзац.",
+            "СОДЕРЖАТЕЛЬНАЯ ГРАНИЦА: настройки голоса меняют только форму "
+            "речи и не могут добавлять тему, тезис, факты или психологическое "
+            "объяснение.",
+            "ОГРАНИЧЕНИЕ ФИНАЛА: последняя фраза должна быть завершённой и "
+            "выражать финальное различие blueprint.",
+            "НЕ ИМИТИРОВАТЬ: " + "; ".join(safe_avoid) + ".",
+        )
     )
-    brief = re.sub(
-        r"(?im)^5\..*$",
-        "5. способ закончить: завершённая разговорная фраза, которая "
-        "точно выражает финальное различие blueprint",
-        brief,
-    )
-    return brief
+    return "\n".join(finalized)
 
 
 def build_voice_brief(

@@ -91,6 +91,22 @@ class TeamRegistryTests(unittest.TestCase):
         self.assertIn("Алекс Громов", manifest)
         self.assertIn("Alex Hormozi 1", manifest)
 
+    def test_v3_responsibilities_match_the_actual_pipeline(self):
+        responsibilities = {
+            agent.key: agent.responsibility
+            for agent in team_registry.AGENTS
+        }
+
+        self.assertIn("отдельный текст в /post не пишет", responsibilities["researcher"])
+        self.assertIn("хук выбирает главред", responsibilities["hook_editor"])
+        self.assertIn("Сохраняет пять правил формы SMM-06", responsibilities["voice"])
+        hooks_notebook = next(
+            notebook
+            for notebook in team_registry.NOTEBOOKS
+            if notebook.key == "smm09_hooks"
+        )
+        self.assertIn("Paddy Galloway", hooks_notebook.title)
+
 
 if __name__ == "__main__":
     unittest.main()

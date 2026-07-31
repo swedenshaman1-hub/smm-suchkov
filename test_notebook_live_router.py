@@ -83,6 +83,7 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("Не объясняй рабочую тему", prompt)
         self.assertIn("темы головы и", prompt)
         self.assertIn("тела, энергии, терапии", prompt)
+        self.assertIn("«башка», «блин», «головастики»", prompt)
         self.assertIn("editorial-blueprint", notebook_live.PROMPT_VERSION)
 
     def test_blueprint_context_excludes_raw_voice(self):

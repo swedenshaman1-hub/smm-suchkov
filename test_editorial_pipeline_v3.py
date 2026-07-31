@@ -311,12 +311,73 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             issues,
         )
 
-    def test_voice_brief_cannot_force_direct_address_or_abrupt_ending(self):
+    def test_voice_brief_preserves_safe_smm06_settings(self):
+        raw = """1. ритм: длинная фраза, затем короткая точка
+2. синтаксис: сначала наблюдение, затем спокойное уточнение
+3. лексика: заметить, сказать прямо, остановиться
+4. дистанция: тепло, но без назидания
+5. финал: закончить конкретным различием
+НЕ ИМИТИРОВАТЬ: канцелярит"""
+
+        brief = telegram_team._finalize_voice_brief(raw)
+
+        self.assertIn("длинная фраза, затем короткая точка", brief)
+        self.assertIn("сначала наблюдение", brief)
+        self.assertIn("заметить, сказать прямо, остановиться", brief)
+        self.assertIn("тепло, но без назидания", brief)
+        self.assertIn("конкретным различием", brief)
+        self.assertIn("канцелярит", brief)
+        self.assertIn("два–пять естественных обращений на «ты»", brief)
+        self.assertIn("без «вы»", brief)
+        self.assertIn("финальное различие", brief)
+
+    def test_distinct_safe_voice_briefs_do_not_collapse_to_one_template(self):
+        first = telegram_team._finalize_voice_brief(
+            "1. плавный ритм с редким коротким акцентом\n"
+            "2. переход через конкретное наблюдение\n"
+            "3. простые бытовые глаголы\n"
+            "4. спокойная близкая дистанция\n"
+            "5. тихое ясное различение"
+        )
+        second = telegram_team._finalize_voice_brief(
+            "1. плотные фразы средней длины\n"
+            "2. переход через прямой вопрос\n"
+            "3. точные разговорные глаголы\n"
+            "4. сдержанная взрослая дистанция\n"
+            "5. короткий завершённый вывод"
+        )
+
+        self.assertNotEqual(first, second)
+        self.assertIn("плавный ритм", first)
+        self.assertIn("плотные фразы", second)
+
+    def test_voice_brief_removes_content_leak_and_keeps_safe_clause(self):
+        raw = """1. разговорные фразы средней длины; отношения разрушаются из-за скрытой тревоги
+2. переход через наблюдаемое действие
+3. использовать слова башка, заметить и сказать
+4. рассказывать про тантру, терапию и клиентов
+5. закончить ясным различием"""
+
+        brief = telegram_team._finalize_voice_brief(raw)
+        lowered = brief.casefold()
+
+        self.assertIn("разговорные фразы средней длины", brief)
+        self.assertIn("заметить и сказать", brief)
+        self.assertNotRegex(
+            lowered,
+            r"\b(?:башк|блин|головастик|тантр|терап|сомат|клиент)\w*",
+        )
+        self.assertIn(
+            "4. дистанция с читателем: тёплое прямое общение без назидания",
+            brief,
+        )
+
+    def test_voice_brief_rejects_conflicting_address_and_abrupt_ending(self):
         raw = """1. коротко
 2. просто
-3. разговорно
+3. обращайся через вас и ваши чувства
 4. прямое обращение на ты в каждом абзаце
-5. резкий обрыв без вывода"""
+5. оставляй финал открытым и заканчивай многоточием"""
 
         brief = telegram_team._finalize_voice_brief(raw)
 
@@ -324,8 +385,52 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn("без цепочек обрывков", brief)
         self.assertIn("два–пять естественных обращений на «ты»", brief)
         self.assertIn("без «вы»", brief)
-        self.assertIn("завершённая разговорная фраза", brief)
-        self.assertNotIn("резкий обрыв", brief)
+        self.assertIn("последняя фраза должна быть завершённой", brief)
+        self.assertNotIn("вас и ваши", brief)
+        self.assertNotIn("каждом абзаце", brief.splitlines()[3])
+        self.assertNotIn("финал открытым", brief)
+        self.assertNotIn("многоточием", brief)
+
+    def test_voice_brief_removes_biography_and_adjacent_source_topics(self):
+        raw = """1. после десяти лет жизни в Швеции говорить спокойнее
+2. упоминать бывшую жену и детей
+3. использовать телесную и эзотерическую лексику через медитацию
+4. сохранять тёплую взрослую дистанцию
+5. заканчивать ясным конкретным различием"""
+
+        brief = telegram_team._finalize_voice_brief(raw)
+        lowered = brief.casefold()
+
+        self.assertNotRegex(
+            lowered,
+            r"\b(?:швец|бывш\w*\s+жен|дет(?:и|ей)|телесн|эзотер|медитац)\w*",
+        )
+        self.assertIn("4. сохранять тёплую взрослую дистанцию", brief)
+        self.assertIn("5. заканчивать ясным конкретным различием", brief)
+
+    @patch("agents.telegram_team.gemini_call")
+    def test_build_voice_brief_is_sanitized_but_not_generic(self, call):
+        call.return_value = """1. чередовать спокойную длинную фразу с коротким акцентом
+2. переходить через наблюдаемое действие
+3. использовать слова башка, заметить и сказать
+4. обращаться тепло и без назидания
+5. закончить ясным различием"""
+
+        brief = telegram_team.build_voice_brief(
+            "Тестовая тема",
+            "Сырая речь о тантре, терапии и клиентах",
+            "test-key",
+        )
+
+        self.assertIn("спокойную длинную фразу", brief)
+        self.assertIn("наблюдаемое действие", brief)
+        self.assertIn("заметить и сказать", brief)
+        self.assertNotRegex(
+            brief.casefold(),
+            r"\b(?:башк|тантр|терап|клиент)\w*",
+        )
+        self.assertIn("без «вы»", brief)
+        self.assertIn("финальное различие", brief)
 
     def test_contract_accepts_bounded_human_post(self):
         text = """Иногда человек так старается сохранить отношения, что постепенно
