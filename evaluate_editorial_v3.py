@@ -147,6 +147,8 @@ def main() -> int:
         contexts.ethics,
         api_key,
         issues,
+        message_map,
+        human_text_context,
     )
     show("AUDIT", audit["review"])
 
@@ -173,6 +175,8 @@ def main() -> int:
             contexts.ethics,
             api_key,
             final_issues,
+            message_map,
+            human_text_context,
         )
         show("FINAL AUDIT", final_audit["review"])
     else:

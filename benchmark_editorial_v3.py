@@ -303,6 +303,8 @@ def run_pipeline(
         contexts.ethics,
         api_key,
         draft_issues,
+        message_map,
+        human_text_context,
     )
 
     final_text = draft
@@ -328,6 +330,8 @@ def run_pipeline(
             contexts.ethics,
             api_key,
             final_issues,
+            message_map,
+            human_text_context,
         )
 
     return PipelineResult(

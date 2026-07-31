@@ -654,6 +654,8 @@ async def _run_post_inner_v3(
             ethics_context,
             GEMINI_API_KEY,
             draft_issues,
+            message_map,
+            human_text_context,
         )
 
         final_text = draft

@@ -717,6 +717,10 @@ SINGLE_AUDIT_PROMPT = """Ты — Игорь, единственный выпу�
    две фразы. Холодный читатель должен понять ситуацию, увидеть действие
    и почувствовать ставку. Книжная абстракция без контекста не является хуком.
 3. Тезис и три логических шага blueprint сохранены.
+   Blueprint не является доказательством. Сверь каждое причинное объяснение с
+   КАРТОЙ СООБЩЕНИЯ JOANNA и её СТАТУСОМ ДАННЫХ. Если прямых данных нет,
+   отклони скрытые мотивы, мысли, страхи и неизбежные последствия, даже если
+   они уже записаны в blueprint.
 4. Художественный пример допустим. Он не выдан за реального клиента, случай
    Дмитрия, исследование или доказательство универсальной причины. Нет чтения
    мыслей реального читателя и единственной скрытой причины.
@@ -1387,13 +1391,19 @@ def audit_editorial_post(
     ethics_context: str,
     api_key: str,
     deterministic_issues: list[str] | None = None,
+    message_map: str = "",
+    human_text_context: str = "",
 ) -> dict:
     """One non-writing audit. It may authorize at most one repair."""
     user_msg = (
         f"Исходная тема: «{topic}»\n\n"
         f"УТВЕРЖДЁННЫЙ BLUEPRINT:\n{blueprint}\n\n"
+        f"КАРТА СООБЩЕНИЯ JOANNA И СТАТУС ДАННЫХ:\n"
+        f"{message_map or 'Прямые данные аудитории не предоставлены.'}\n\n"
         f"ТЕКСТ:\n{text}\n\n"
-        f"ЭТИЧЕСКОЕ ЗАКЛЮЧЕНИЕ NOTEBOOKLM:\n{ethics_context}"
+        f"ЭТИЧЕСКОЕ ЗАКЛЮЧЕНИЕ NOTEBOOKLM:\n{ethics_context}\n\n"
+        f"ЗАМЕЧАНИЯ ANN HANDLEY К ЭТОМУ ЧЕРНОВИКУ:\n"
+        f"{human_text_context or 'Отдельных замечаний нет.'}"
     )
     if deterministic_issues:
         user_msg += (
@@ -2052,6 +2062,12 @@ def editorial_contract_issues(topic: str, text: str) -> list[str]:
         issues.append(
             "не смешивай перспективы наблюдателя «ты» и отдельного персонажа «он/она»"
         )
+    if "сильн" not in topic_lower and re.search(r"\b(?:образ|роль)\s+сильн\w*\b", lowered):
+        issues.append("не приписывай человеку мотив сохранять образ или роль сильного")
+    if re.search(r"\bты\s+(?:думаешь|считаешь|решаешь),?\s+что\b", lowered):
+        issues.append("не назначай читателю мысль или объяснение от второго лица")
+    if "нужн" not in topic_lower and re.search(r"\bпочувств\w*\s+себя\s+нужн\w*\b", lowered):
+        issues.append("не назначай близкому человеку чувство собственной нужности")
     if re.search(
         r"\b(?:любит|выбирает|слышит|понимает)\s+ли\s+он\b|"
         r"\bпартн[её]р\w*\b.{0,160}\b(?:он|его|ему)\b",

@@ -493,6 +493,44 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertIn("сохрани обязательный дефис в слове «по-разному»", issues)
 
+    def test_contract_rejects_assigned_strong_person_motive_and_reader_thought(self):
+        topic = "Как отличить самостоятельность от привычки не просить поддержку"
+        text = """Самостоятельность не требует всегда справляться в одиночку. Иногда просьба помогает увидеть доступные варианты.
+
+Так проще сохранить образ сильного человека и не просить о помощи. Ты думаешь, что оберегаешь близкого от своих трудностей.
+
+Возможная сцена проста. Человек собирает шкаф и прямо отвечает на предложение помочь, не превращая эпизод в доказательство общей причины.
+
+Один ответ ничего не говорит обо всех отношениях. Он только показывает, было ли решение принято после выбора.
+
+Самостоятельность допускает и помощь, и отказ от неё. Привычка заранее оставляет только один вариант."""
+
+        issues = telegram_team.editorial_contract_issues(topic, text)
+
+        self.assertTrue(any("образ или роль сильного" in issue for issue in issues), issues)
+        self.assertTrue(any("мысль или объяснение" in issue for issue in issues), issues)
+
+    @patch("agents.telegram_team._reasoning_call")
+    def test_audit_receives_message_map_and_ann_notes(self, call):
+        call.return_value = "АУДИТ: ПРИНЯТО"
+
+        telegram_team.audit_editorial_post(
+            TOPIC,
+            valid_blueprint("Ясный хук.", "Наблюдаемое различие."),
+            "Готовый текст.",
+            "Этическая граница.",
+            "test-key",
+            [],
+            "СТАТУС ДАННЫХ: НЕТ ПРЯМЫХ ДАННЫХ",
+            "ГДЕ ЗВУЧИТ КАК ЛЕКЦИЯ: второй абзац",
+        )
+
+        system_prompt = call.call_args.args[2]
+        user_prompt = call.call_args.args[3]
+        self.assertIn("Blueprint не является доказательством", system_prompt)
+        self.assertIn("СТАТУС ДАННЫХ: НЕТ ПРЯМЫХ ДАННЫХ", user_prompt)
+        self.assertIn("ГДЕ ЗВУЧИТ КАК ЛЕКЦИЯ", user_prompt)
+
     def test_voice_brief_preserves_safe_smm06_settings(self):
         raw = """1. ритм: длинная фраза, затем короткая точка
 2. синтаксис: сначала наблюдение, затем спокойное уточнение
