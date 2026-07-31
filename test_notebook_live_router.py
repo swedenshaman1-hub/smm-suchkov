@@ -144,6 +144,14 @@ class NotebookLiveRouterTests(unittest.TestCase):
         prompt = query_one.call_args.args[1]
         self.assertIn("Уникальный черновик для Ann", prompt)
         self.assertIn("Не пиши новый пост", prompt)
+        self.assertGreaterEqual(query_one.call_args.args[3], 2)
+
+    def test_empty_notebook_answer_is_retryable(self):
+        error = notebook_live.NotebookLiveError(
+            "блокнот «Ann Handley» вернул пустой ответ"
+        )
+
+        self.assertTrue(notebook_live._is_retryable_query_error(error))
 
     def test_blueprint_context_excludes_raw_voice(self):
         contexts = notebook_live.TopicContexts(

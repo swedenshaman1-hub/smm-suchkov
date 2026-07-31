@@ -473,6 +473,8 @@ def _is_retryable_query_error(exc: Exception | None) -> bool:
         ),
     ):
         return True
+    if "пустой ответ" in str(exc).casefold():
+        return True
     message = str(exc).lower()
     return any(
         marker in message
@@ -684,7 +686,7 @@ def build_human_text_context(
         notebook,
         prompt,
         auth.cookies,
-        QUERY_ATTEMPTS,
+        max(2, QUERY_ATTEMPTS),
         auth.csrf_token,
         auth.session_id,
     )

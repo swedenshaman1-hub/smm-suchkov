@@ -611,12 +611,26 @@ async def _run_post_inner_v3(
             "затем один раз убираю лекционный тон, повторы и неестественные "
             "конструкции, не меняя blueprint..."
         )
-        human_text_context = await _run_blocking(
-            notebook_live.build_human_text_context,
-            topic,
-            draft,
-            route.mode,
-        )
+        try:
+            human_text_context = await _run_blocking(
+                notebook_live.build_human_text_context,
+                topic,
+                draft,
+                route.mode,
+            )
+        except notebook_live.NotebookLiveError as exc:
+            logger.warning("Ann Handley NotebookLM fallback: %s", exc)
+            human_text_context = (
+                "Резервная редактура формы: убрать лекционный тон и повторы; "
+                "заменить абстрактные категории наблюдаемыми действиями; "
+                "исправить неестественный русский; прочитать фразы вслух; "
+                "не менять blueprint, тезис, сцену, факты и вывод."
+            )
+            await msg.reply_text(
+                "Ann Handley — блокнот дважды вернул пустой ответ. "
+                "Продолжаю без остановки по резервному контракту живого языка; "
+                "blueprint и смысл сохраняются."
+            )
         draft = await _run_blocking(
             telegram_team.human_edit_editorial_post,
             topic,
