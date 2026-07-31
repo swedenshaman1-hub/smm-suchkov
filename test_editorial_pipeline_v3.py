@@ -15,6 +15,10 @@ def valid_blueprint(hook: str, thesis: str) -> str:
     return f"""КАРКАС: ГОТОВ
 НЕИЗМЕНЯЕМЫЙ ФАКТ ТЕМЫ: {TOPIC}
 ФАКТИЧЕСКИЙ КОНТРАКТ: факты исходной темы и один явно художественный пример
+СМЫСЛОВОЙ ОБЪЕКТ ТЕМЫ:
+Отказ от собственного участия в отношениях.
+ОТВЕТ НА ВОПРОС ТЕМЫ:
+Различить взаимную заботу и одностороннее исчезновение из отношений.
 ОБЕЩАНИЕ ЧИТАТЕЛЮ:
 Показать разницу между заботой об отношениях и отказом от собственного участия.
 ТЕЗИС:
@@ -457,6 +461,133 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertTrue(
             any("пропущенной связкой" in item for item in warnings),
+            warnings,
+        )
+
+    def test_quality_contract_rejects_extended_light_metaphor(self):
+        text = (
+            "Партнёр был источником света и знал, где находится выключатель. "
+            "Комната могла наполниться светом. Потом выключатель исчез, "
+            "но провода остались подключены."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(
+            any("метафору света" in item for item in warnings),
+            warnings,
+        )
+
+    def test_quality_contract_rejects_extended_key_metaphor(self):
+        text = (
+            "Человек был ключом к твоей радости и открывал нужную дверь. "
+            "Теперь старый замок сменился, доступ пропал, а эта часть заперта."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(
+            any("метафору ключа" in item for item in warnings),
+            warnings,
+        )
+
+    def test_quality_contract_rejects_bookish_nominalization(self):
+        text = (
+            "Смысл в том, чтобы найти новый контекст для проявления "
+            "собственной способности радоваться."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(
+            any("книжную связку" in item for item in warnings),
+            warnings,
+        )
+        self.assertTrue(
+            any("номинализацию" in item for item in warnings),
+            warnings,
+        )
+
+    def test_quality_contract_rejects_bookish_catalyst_and_generic_advice(self):
+        text = (
+            "Партнёр был катализатором лёгкости. Теперь нужно сместить фокус "
+            "и искать крошечные моменты лёгкости."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(any("катализатор" in item for item in warnings), warnings)
+        self.assertTrue(any("общий совет" in item for item in warnings), warnings)
+
+    def test_quality_contract_rejects_concept_language_and_missing_link(self):
+        text = (
+            "Эта часть личности осталась в прошлом. Авторство настоящего "
+            "возвращается тебе. Привычка делиться этим с кем-то это другое."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(any("язык концепции" in item for item in warnings), warnings)
+        self.assertTrue(
+            any("пропущенной связкой" in item for item in warnings),
+            warnings,
+        )
+
+    def test_fictional_first_thought_is_not_a_safety_blocker(self):
+        text = (
+            "Девушка увидела смешной плакат. Первая мысль: он бы посмеялся. "
+            "Она остановилась и дочитала его сама."
+        )
+
+        blockers = telegram_team.blocking_quality_warnings(text)
+
+        self.assertFalse(
+            any("первой или типичной" in item for item in blockers),
+            blockers,
+        )
+
+    def test_quality_contract_rejects_gendered_past_self_formula(self):
+        warnings = telegram_team.quality_warnings(
+            "Иногда скучаешь по прошлой себе."
+        )
+
+        self.assertTrue(
+            any("прежняя версия себя" in item for item in warnings),
+            warnings,
+        )
+
+    def test_missing_self_blueprint_rejects_source_catalyst_frame(self):
+        topic = (
+            "После расставания скучаешь по себе рядом с человеком. "
+            "Как вернуть эту часть себя?"
+        )
+        blueprint = valid_blueprint(
+            "Открываешь меню и долго не можешь выбрать десерт.",
+            (
+                "Партнёр был катализатором лёгкости, а её источник находился "
+                "внутри человека."
+            ),
+        )
+        blueprint = blueprint.replace(TOPIC, topic)
+
+        issues = telegram_team.blueprint_contract_issues(topic, blueprint)
+
+        self.assertTrue(
+            any("источника и катализатора" in item for item in issues),
+            issues,
+        )
+
+    def test_relationship_hook_rejects_implicit_male_reader_form(self):
+        topic = "После расставания трудно вернуть лёгкость в отношения с собой"
+        text = (
+            "Открываешь меню в кафе и вспоминаешь человека, с которым сюда "
+            "ходил. Выбрать десерт почему-то трудно."
+        )
+
+        warnings = telegram_team.structural_warnings(topic, text)
+
+        self.assertTrue(
+            any("неявную мужскую форму" in item for item in warnings),
             warnings,
         )
 

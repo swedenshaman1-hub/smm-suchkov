@@ -60,6 +60,13 @@ CASES = (
         "Где проходит граница между поддержкой близкого человека и попыткой "
         "прожить его жизнь вместо него",
     ),
+    (
+        "missing_self_after_breakup",
+        "Иногда после расставания скучаешь не только по человеку. Скучаешь "
+        "по себе рядом с этим человеком: по тому, как легко было смеяться, "
+        "строить планы и чувствовать вкус жизни. Как вернуть эту часть себя, "
+        "не возвращаясь в отношения?",
+    ),
 )
 
 QUICK_CASE_IDS = {"not_chosen", "honest_refusal", "support_or_control"}
@@ -74,6 +81,13 @@ SCORE_WEIGHTS = {
     "expert_synthesis": 0.11,
     "ethics": 0.05,
     "ending": 0.05,
+}
+
+CRITICAL_SCORE_FLOORS = {
+    "hook": 8.5,
+    "idea": 8.5,
+    "humanity": 8.5,
+    "voice": 8.0,
 }
 
 JUDGE_PROMPT = """Ты независимый главред и оцениваешь один Telegram-пост.
@@ -102,6 +116,14 @@ ending: финал завершает обещание текста и оста�
 не может быть выше 5.
 Если запрет на тире породил фразы с пропущенной связкой вроде «способ это»,
 «задача помочь» или «первый стать», humanity не может быть выше 5.
+Если один образ растянут больше чем на два предложения или текст перечисляет
+четыре и более предмета одной метафоры, humanity не может быть выше 6.
+Если исходный смысловой объект заменён соседним советом, например тоска по
+прежней версии себя заменена поиском новых поводов радоваться, idea и logic
+не могут быть выше 6.
+Если текст использует «катализатор», «авторство настоящего», «часть личности»,
+«проявить лёгкость», «новый контекст» или смешивает «ты» и «вы», humanity
+и voice не могут быть выше 7.
 
 Верни только JSON без Markdown:
 {
@@ -389,9 +411,15 @@ def judge_result(result: PipelineResult, api_key: str) -> dict[str, Any]:
     judged["scores"] = scores
     judged["overall"] = overall
     judged["blocking"] = list(dict.fromkeys(blocking))
+    judged["critical_floor_failures"] = {
+        key: {"score": scores[key], "minimum": minimum}
+        for key, minimum in CRITICAL_SCORE_FLOORS.items()
+        if scores[key] < minimum
+    }
     judged["passed"] = (
         result.accepted
         and not judged["blocking"]
+        and not judged["critical_floor_failures"]
         and overall >= TARGET_SCORE
     )
     return judged

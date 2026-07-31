@@ -100,7 +100,8 @@ class NotebookPlaybooksTest(unittest.TestCase):
             "Другая тема",
             (
                 "Что то изменилось, но это по прежнему важно. "
-                "Ответ вот вот появится из за одного решения."
+                "Ответ вот вот появится из за одного решения. "
+                "Мы нашли смысл в чём то новом."
             ),
         )
 
@@ -108,6 +109,7 @@ class NotebookPlaybooksTest(unittest.TestCase):
         self.assertIn("по-прежнему", clean)
         self.assertIn("вот-вот", clean)
         self.assertIn("из-за", clean)
+        self.assertIn("чём-то", clean)
         self.assertNotIn("—", clean)
 
     def test_human_surface_removes_double_sentence_punctuation(self):

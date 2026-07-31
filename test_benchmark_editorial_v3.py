@@ -1,6 +1,10 @@
 import unittest
 
-from benchmark_editorial_v3 import SCORE_WEIGHTS, _parse_json
+from benchmark_editorial_v3 import (
+    CRITICAL_SCORE_FLOORS,
+    SCORE_WEIGHTS,
+    _parse_json,
+)
 
 
 class BenchmarkParserTests(unittest.TestCase):
@@ -23,6 +27,18 @@ class BenchmarkParserTests(unittest.TestCase):
         self.assertEqual(set(SCORE_WEIGHTS), set(parsed["scores"]))
         self.assertEqual([], parsed["blocking"])
         self.assertTrue(parsed["parser_recovered_malformed_json"])
+
+    def test_humanity_is_a_required_floor_not_hidden_by_average(self):
+        scores = {key: 10.0 for key in SCORE_WEIGHTS}
+        scores["humanity"] = 6.5
+
+        failures = {
+            key
+            for key, minimum in CRITICAL_SCORE_FLOORS.items()
+            if scores[key] < minimum
+        }
+
+        self.assertEqual({"humanity"}, failures)
 
 
 if __name__ == "__main__":
