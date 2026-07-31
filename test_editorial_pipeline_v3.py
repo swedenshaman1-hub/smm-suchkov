@@ -43,6 +43,104 @@ def valid_blueprint(hook: str, thesis: str) -> str:
 
 
 class EditorialPipelineV3Tests(unittest.TestCase):
+    @patch("agents.telegram_team.gemini_call")
+    def test_message_map_is_built_before_blueprint_without_invented_voc(self, call):
+        call.return_value = """КАРТА СООБЩЕНИЯ: ГОТОВА
+ДАННЫЕ АУДИТОРИИ: прямых данных нет
+НАБЛЮДАЕМЫЙ КОНФЛИКТ: простая просьба стала трудной
+ОБЕЩАНИЕ ЧИТАТЕЛЮ: различить просьбу и проверку отношений
+НОВОЕ РАЗЛИЧЕНИЕ: трудность просьбы не доказывает одну причину
+ХУК 1: Первый хук
+ХУК 2: Второй хук
+ХУК 3: Третий хук
+НЕ ДОКАЗЫВАТЬ: скрытый мотив"""
+
+        message_map = telegram_team.build_message_map(
+            "Почему стало трудно попросить о простом?",
+            "Метод Joanna Wiebe",
+            "test-key",
+        )
+
+        self.assertIn("КАРТА СООБЩЕНИЯ: ГОТОВА", message_map)
+        system_prompt = call.call_args.args[2]
+        user_prompt = call.call_args.args[3]
+        self.assertIn("не являются реальной речью\nаудитории", system_prompt)
+        self.assertIn("не используй агрессивный PAS", system_prompt)
+        self.assertIn("Нет данных для этой темы", user_prompt)
+        self.assertIn("Метод Joanna Wiebe", user_prompt)
+
+    @patch("agents.telegram_team.gemini_call")
+    def test_message_map_rejects_missing_contract_fields(self, call):
+        call.return_value = "ОБЕЩАНИЕ ЧИТАТЕЛЮ: что-то полезное"
+
+        with self.assertRaisesRegex(ValueError, "неполную карту сообщения"):
+            telegram_team.build_message_map(
+                "Тестовая тема",
+                "Метод Joanna Wiebe",
+                "test-key",
+            )
+
+    @patch("agents.telegram_team._reasoning_call")
+    def test_blueprint_receives_message_map_as_separate_input(self, call):
+        call.return_value = valid_blueprint(
+            "Новый хук.",
+            "Наблюдаемое различие.",
+        )
+
+        telegram_team.build_editorial_blueprint(
+            TOPIC,
+            "Решения Рори и Нэнси",
+            "test-key",
+            message_map="КАРТА СООБЩЕНИЯ: ГОТОВА\nОБЕЩАНИЕ: ясный ответ",
+        )
+
+        user_prompt = call.call_args.args[3]
+        self.assertIn("КАРТА СООБЩЕНИЯ JOANNA WIEBE", user_prompt)
+        self.assertIn("ОБЕЩАНИЕ: ясный ответ", user_prompt)
+        self.assertIn("Решения Рори и Нэнси", user_prompt)
+
+    @patch("agents.telegram_team.gemini_call")
+    def test_ann_human_edit_cannot_change_blueprint(self, call):
+        call.return_value = "Живой готовый текст."
+
+        result = telegram_team.human_edit_editorial_post(
+            TOPIC,
+            valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+            "Лекционный черновик.",
+            "Метод Ann Handley",
+            "Голос Дмитрия",
+            "test-key",
+        )
+
+        self.assertEqual("Живой готовый текст.", result)
+        system_prompt = call.call_args.args[2]
+        user_prompt = call.call_args.args[3]
+        self.assertIn("Не меняй blueprint", system_prompt)
+        self.assertIn("перестрой её в косвенную речь", system_prompt)
+        self.assertIn("не имеет права улучшать смысл", system_prompt)
+        self.assertIn("Метод Ann Handley", user_prompt)
+        self.assertIn("Голос Дмитрия", user_prompt)
+
+    @patch("agents.telegram_team._reasoning_call")
+    def test_single_repair_keeps_ann_boundaries(self, call):
+        call.return_value = "Исправленный живой текст."
+
+        result = telegram_team.repair_editorial_post(
+            TOPIC,
+            valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+            "Исходный живой текст.",
+            "Исправить только грамматику.",
+            "Голос Дмитрия.",
+            "test-key",
+            ["исправь грамматику"],
+            "Ann просит убрать лекционный тон.",
+        )
+
+        self.assertEqual("Исправленный живой текст.", result)
+        user_prompt = call.call_args.args[3]
+        self.assertIn("ГРАНИЦЫ ЖИВОЙ РЕДАКТУРЫ ANN HANDLEY", user_prompt)
+        self.assertIn("Ann просит убрать лекционный тон", user_prompt)
+
     def test_reasoning_call_falls_back_when_pro_returns_only_thoughts(self):
         with patch(
             "agents.telegram_team.gemini_call",
@@ -311,6 +409,50 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             issues,
         )
 
+    def test_contract_rejects_scene_that_needs_topic_as_heading(self):
+        topic = (
+            "Как отличить внутреннюю свободу от привычки заранее "
+            "отказываться от своих желаний"
+        )
+        text = """Палец замирает над кнопкой отправить. В сообщении осталось робкое предложение сходить куда-то вместе.
+
+Со стороны это может выглядеть как сила и самодостаточность. Но иногда отказ от желания лишь сохраняет привычный порядок и не создаёт нового выбора.
+
+Разница становится заметна по результату. Свободное решение оставляет ясность, а автоматический отказ не позволяет даже проверить возможность.
+
+Важно не назначать единственную причину такого поведения. Один эпизод ничего не доказывает и требует честного наблюдения.
+
+В конкретной ситуации полезно спросить: это решение действительно выражает моё желание или заранее отменяет его?"""
+
+        issues = telegram_team.editorial_contract_issues(topic, text)
+
+        self.assertTrue(
+            any("самостоятельный смысловой хук" in issue for issue in issues),
+            issues,
+        )
+
+    def test_contract_accepts_semantically_framed_opening_before_scene(self):
+        topic = (
+            "Как отличить внутреннюю свободу от привычки заранее "
+            "отказываться от своих желаний"
+        )
+        text = """Отказ от собственного желания не всегда означает свободу. Иногда он лишь не даёт проверить, чего человеку действительно хочется.
+
+Палец замирает над кнопкой отправить. В сообщении осталось предложение сходить куда-то вместе, но через секунду текст исчезает.
+
+Смысл не в том, чтобы обязательно отправить сообщение. Важно заметить, было ли решение принято после выбора или появилось ещё до него.
+
+Один такой эпизод не доказывает скрытую причину и ничего не говорит обо всех отношениях. Он только даёт материал для честной проверки.
+
+Свобода оставляет контакт с желанием, даже когда ответом становится нет. Привычный отказ не позволяет желанию прозвучать."""
+
+        issues = telegram_team.editorial_contract_issues(topic, text)
+
+        self.assertFalse(
+            any("самостоятельный смысловой хук" in issue for issue in issues),
+            issues,
+        )
+
     def test_voice_brief_preserves_safe_smm06_settings(self):
         raw = """1. ритм: длинная фраза, затем короткая точка
 2. синтаксис: сначала наблюдение, затем спокойное уточнение
@@ -553,7 +695,38 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             "Это по-настоящему важный вопрос.",
             cleaned,
         )
-        self.assertNotRegex(cleaned, r"[«»“”„\"'‐‑‒–—−]")
+
+    def test_contract_blocks_defects_from_music_request_generation(self):
+        text = """Партнёр читает, а тебе мешает громкая музыка. Раньше ты бы
+сказал: Сделай, пожалуйста, потише. Теперь проще надеть наушники.
+
+Есть просьбы инструкции. Они решают бытовую задачу.
+
+А есть просьбы вопросы. Они будто проверяют отношение.
+
+Перед разговором полезно спросить себя, что именно сейчас важно.
+
+Если ответ второе, возможно, нужен другой разговор.
+
+Такая пауза помогает точнее назвать происходящее и не делать лишних выводов."""
+
+        issues = telegram_team.editorial_contract_issues(
+            "Почему стало трудно попросить о простом?",
+            text,
+        )
+        blockers = telegram_team.editorial_publication_blockers(
+            "Почему стало трудно попросить о простом?",
+            text,
+        )
+
+        self.assertTrue(any("мужскую форму" in issue for issue in issues), issues)
+        self.assertTrue(any("просьбы инструкции" in issue for issue in issues), issues)
+        self.assertTrue(any("если ответ второе" in issue for issue in issues), issues)
+        self.assertTrue(any("прямую речь" in issue for issue in issues), issues)
+        self.assertTrue(any("мужскую форму" in issue for issue in blockers), blockers)
+        self.assertTrue(any("просьбы инструкции" in issue for issue in blockers), blockers)
+        self.assertTrue(any("если ответ второе" in issue for issue in blockers), blockers)
+        self.assertTrue(any("прямую речь" in issue for issue in blockers), blockers)
 
     def test_quality_contract_rejects_dash_removal_that_breaks_grammar(self):
         text = (

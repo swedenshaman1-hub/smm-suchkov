@@ -22,7 +22,7 @@ from agents import team_registry
 BASE_URL = "https://notebook.google.com"
 AUTH_ENV = "NOTEBOOKLM_AUTH_B64"
 CACHE_TTL_SECONDS = 4 * 60 * 60
-PROMPT_VERSION = "2026-07-31-editorial-blueprint-v2"
+PROMPT_VERSION = "2026-07-31-message-map-human-edit-v1"
 QUERY_ATTEMPTS = 2
 
 REQUIRED_COOKIES = {"SID", "HSID", "SSID", "APISID", "SAPISID"}
@@ -59,6 +59,21 @@ class TopicContexts:
     @property
     def audience(self) -> str:
         return self._join_roles("audience", "human_text")
+
+    @property
+    def message_strategy(self) -> str:
+        """Joanna Wiebe only: message architecture before the blueprint."""
+        return self._join_roles("audience")
+
+    @property
+    def human_text(self) -> str:
+        """Ann Handley only: a bounded human-language edit after drafting."""
+        return self._join_roles("human_text")
+
+    @property
+    def author_voice(self) -> str:
+        """Dmitry's own voice sources, without another author's style."""
+        return self._join_roles("voice")
 
     @property
     def angles(self) -> str:
@@ -261,12 +276,18 @@ def _query_prompt(topic: str, adviser_role: str) -> str:
     instructions = {
         "audience": common + """
 
-Ты консультируешь только по ясности и языку читателя, а не описываешь реальную
-аудиторию без её исследований. Ответ строго:
+Примени метод Joanna Wiebe как архитектуру сообщения до написания текста.
+Ты не автор поста. Не используй агрессивный PAS и не усиливай боль ради
+удержания внимания. Опирайся на реальную речь аудитории только тогда, когда
+она передана во входных данных; методические материалы о Voice of Customer
+не являются самими данными Voice of Customer. Ответ строго:
 ПРИНЦИП ИЗ ИСТОЧНИКОВ:
-ЧЕЛОВЕЧЕСКОЕ НАПРЯЖЕНИЕ ТЕМЫ:
-ТРИ ЯСНЫЕ ФОРМУЛИРОВКИ:
-ЧЕГО НЕЛЬЗЯ ПРИПИСЫВАТЬ ЧИТАТЕЛЮ:""",
+НАБЛЮДАЕМЫЙ КОНФЛИКТ:
+ОБЕЩАНИЕ ЧИТАТЕЛЮ:
+НОВОЕ РАЗЛИЧЕНИЕ:
+ТРИ ЧЕСТНЫХ ХУКА:
+ЧЕГО НЕЛЬЗЯ ПРИПИСЫВАТЬ ЧИТАТЕЛЮ:
+Не описывай реальную аудиторию без исследований и не пиши готовый пост.""",
         "angles": common + """
 
 Примени принципы Рори Сазерленда только как инструмент редакционного мышления.
@@ -317,13 +338,17 @@ def _query_prompt(topic: str, adviser_role: str) -> str:
 фрагментами живой речи, не включай его.""",
         "human_text": common + """
 
-Выдели только редакционные приёмы человеческого текста. Ответ строго:
+Примени метод Ann Handley только как редактуру уже написанного черновика.
+Не создавай психологический тезис, не меняй факты, этическую границу и
+композиционное решение. Выдели приёмы, которые помогут говорить с одним
+умным живым человеком, а не с безликим сегментом. Ответ строго:
 ПРИНЦИП ИЗ ИСТОЧНИКОВ:
 ЕСТЕСТВЕННЫЙ ВХОД:
 РИТМ И КОНКРЕТИКА:
 СПОСОБ ЗАКОНЧИТЬ:
 ПЯТЬ ШТАМПОВ ПОД ЗАПРЕТОМ:
-Не копируй фразы автора источников и не подменяй голос Дмитрия чужим стилем.""",
+Не копируй фразы автора источников, не добавляй юмор ради эффекта и не
+подменяй голос Дмитрия чужим стилем.""",
         "short_dramaturgy": common + """
 
 Предложи только компактные приёмы удержания для короткого формата:
@@ -607,6 +632,65 @@ def build_topic_context(
         _cache[normalized] = (now, bundle)
         _last_success_at = now
     return bundle
+
+
+def build_human_text_context(
+    topic: str,
+    draft: str,
+    explicit_mode: str | None = None,
+) -> str:
+    """Query Ann Handley only after the concrete draft exists."""
+    route = team_registry.route_for(topic, explicit_mode)
+    notebook = next(
+        (
+            item
+            for item in route.notebooks
+            if item.key == "smm02c_human_text"
+        ),
+        None,
+    )
+    if notebook is None or not notebook.resolved_id():
+        raise NotebookLiveError(
+            "для отдельной редактуры Ann Handley не задан ID блокнота"
+        )
+
+    prompt = (
+        f"Рабочая тема Telegram-поста: «{topic}».\n\n"
+        f"КОНКРЕТНЫЙ ЧЕРНОВИК ДЛЯ РЕДАКТУРЫ:\n{draft}\n\n"
+        "Опирайся только на источники этого блокнота. Проведи редакционный "
+        "разбор именно этого черновика по принципам Ann Handley. Не пиши новый "
+        "пост и не меняй тезис, факты, хук-механику, этическую границу или "
+        "вывод. Не добавляй психологические причины, сцены, метафоры, юмор и "
+        "чужой авторский голос.\n\n"
+        "Ответ строго:\n"
+        "ЧТО СОХРАНИТЬ:\n"
+        "ГДЕ ЗВУЧИТ КАК ЛЕКЦИЯ:\n"
+        "ГДЕ НАРУШЕН ЖИВОЙ РУССКИЙ:\n"
+        "КАК УБРАТЬ ПОВТОР:\n"
+        "ЧТО ПРОВЕРИТЬ ВСЛУХ:\n"
+        "СМЫСЛОВАЯ ГРАНИЦА РЕДАКТУРЫ:"
+    )
+    auth = _load_auth()
+    answer_key = (
+        f"{PROMPT_VERSION}|ann-draft|{notebook.resolved_id()}|{prompt}"
+    )
+    now = time.time()
+    with _cache_lock:
+        cached = _answer_cache.get(answer_key)
+        if cached and now - cached[0] < CACHE_TTL_SECONDS:
+            return f"Источник: {notebook.title}\n{cached[1]}"
+
+    _key, answer = _query_one(
+        notebook,
+        prompt,
+        auth.cookies,
+        QUERY_ATTEMPTS,
+        auth.csrf_token,
+        auth.session_id,
+    )
+    with _cache_lock:
+        _answer_cache[answer_key] = (time.time(), answer)
+    return f"Источник: {notebook.title}\n{answer}"
 
 
 def is_configured() -> bool:

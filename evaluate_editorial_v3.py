@@ -65,12 +65,24 @@ def main() -> int:
             )
     print("NOTEBOOKS:", ", ".join(contexts.selected_notebooks))
 
-    expert_context = contexts.without_roles("voice", "ethics")
+    message_map = telegram_team.build_message_map(
+        topic,
+        contexts.message_strategy,
+        api_key,
+    )
+    show("JOANNA MESSAGE MAP", message_map)
+    expert_context = contexts.without_roles(
+        "voice",
+        "ethics",
+        "audience",
+        "human_text",
+    )
     blueprint = telegram_team.build_editorial_blueprint(
         topic,
         expert_context,
         api_key,
         route.mode,
+        message_map,
     )
     show("BLUEPRINT", blueprint)
     blueprint_issues = telegram_team.full_blueprint_issues(
@@ -99,7 +111,7 @@ def main() -> int:
 
     voice_brief = telegram_team.build_voice_brief(
         topic,
-        contexts.voice,
+        contexts.author_voice,
         api_key,
     )
     show("VOICE BRIEF", voice_brief)
@@ -107,6 +119,20 @@ def main() -> int:
     draft = telegram_team.write_editorial_post(
         topic,
         blueprint,
+        voice_brief,
+        api_key,
+    )
+    human_text_context = notebook_live.build_human_text_context(
+        topic,
+        draft,
+        route.mode,
+    )
+    show("ANN HANDLEY EDIT NOTES", human_text_context)
+    draft = telegram_team.human_edit_editorial_post(
+        topic,
+        blueprint,
+        draft,
+        human_text_context,
         voice_brief,
         api_key,
     )
@@ -135,6 +161,7 @@ def main() -> int:
             voice_brief,
             api_key,
             issues,
+            human_text_context,
         )
         final_text = telegram_team.clean_human_surface(topic, final_text)
         show("ONE REPAIR", final_text)

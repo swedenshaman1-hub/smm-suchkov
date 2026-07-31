@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from agents import notebook_live, team_registry
 
@@ -9,14 +10,14 @@ class NotebookLiveRouterTests(unittest.TestCase):
         selected = notebook_live._selected_notebooks(route)
         keys = {nb.key for nb in selected}
 
-        self.assertEqual(len(selected), 7)
+        self.assertEqual(len(selected), 6)
         self.assertNotIn("hormozi_1", keys)
         self.assertNotIn("smm05a_positioning", keys)
+        self.assertNotIn("smm02c_human_text", keys)
         self.assertEqual(
             keys,
             {
                 "smm02a_audience",
-                "smm02c_human_text",
                 "smm03a_angles",
                 "smm03b_dramaturgy",
                 "smm06_voice",
@@ -84,7 +85,65 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("темы головы и", prompt)
         self.assertIn("тела, энергии, терапии", prompt)
         self.assertIn("«башка», «блин», «головастики»", prompt)
-        self.assertIn("editorial-blueprint", notebook_live.PROMPT_VERSION)
+        self.assertIn("message-map-human-edit", notebook_live.PROMPT_VERSION)
+
+    def test_copywriting_contexts_are_separated_by_stage(self):
+        contexts = notebook_live.TopicContexts(
+            mode=team_registry.EDITORIAL,
+            answers={
+                "audience:smm02a_audience": "Метод Joanna",
+                "human_text:smm02c_human_text": "Метод Ann",
+                "voice:smm06_voice": "Голос Дмитрия",
+            },
+            selected_notebooks=(
+                "smm02a_audience",
+                "smm02c_human_text",
+                "smm06_voice",
+            ),
+        )
+
+        self.assertEqual("Метод Joanna", contexts.message_strategy)
+        self.assertEqual("Метод Ann", contexts.human_text)
+        self.assertEqual("Голос Дмитрия", contexts.author_voice)
+        self.assertNotIn("Метод Ann", contexts.author_voice)
+        self.assertNotIn("Голос Дмитрия", contexts.human_text)
+
+    def test_joanna_and_ann_queries_have_bounded_authority(self):
+        joanna = notebook_live._query_prompt("Тестовая тема", "audience")
+        ann = notebook_live._query_prompt("Тестовая тема", "human_text")
+
+        self.assertIn("архитектуру сообщения до написания текста", joanna)
+        self.assertIn("не являются самими данными Voice of Customer", joanna)
+        self.assertIn("не пиши готовый пост", joanna)
+        self.assertIn("только как редактуру уже написанного черновика", ann)
+        self.assertIn("не меняй факты", ann)
+        self.assertIn("не\nподменяй голос Дмитрия", ann)
+
+    @patch("agents.notebook_live._query_one")
+    @patch("agents.notebook_live._load_auth")
+    def test_ann_notebook_is_queried_with_the_concrete_draft(
+        self,
+        load_auth,
+        query_one,
+    ):
+        load_auth.return_value = notebook_live.NotebookAuth(
+            cookies={"SID": "test"},
+        )
+        query_one.return_value = (
+            "smm02c_human_text",
+            "ГДЕ ЗВУЧИТ КАК ЛЕКЦИЯ: второй абзац",
+        )
+
+        result = notebook_live.build_human_text_context(
+            "Тестовая тема",
+            "Уникальный черновик для Ann.",
+            team_registry.EDITORIAL,
+        )
+
+        self.assertIn("ГДЕ ЗВУЧИТ КАК ЛЕКЦИЯ", result)
+        prompt = query_one.call_args.args[1]
+        self.assertIn("Уникальный черновик для Ann", prompt)
+        self.assertIn("Не пиши новый пост", prompt)
 
     def test_blueprint_context_excludes_raw_voice(self):
         contexts = notebook_live.TopicContexts(
@@ -103,10 +162,15 @@ class NotebookLiveRouterTests(unittest.TestCase):
             ),
         )
 
-        blueprint_context = contexts.without_roles("voice", "ethics")
+        blueprint_context = contexts.without_roles(
+            "voice",
+            "ethics",
+            "audience",
+            "human_text",
+        )
 
         self.assertIn("Смысловые углы", blueprint_context)
-        self.assertIn("Человеческий текст", blueprint_context)
+        self.assertNotIn("Человеческий текст", blueprint_context)
         self.assertNotIn("Этическое вето", blueprint_context)
         self.assertNotIn("Сырая речь Дмитрия", blueprint_context)
 

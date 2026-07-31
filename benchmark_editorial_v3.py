@@ -213,12 +213,23 @@ def run_pipeline(
         contexts = notebook_live.build_topic_context(topic, route.mode)
         _save_context(context_path, contexts)
 
-    expert_context = contexts.without_roles("voice", "ethics")
+    message_map = telegram_team.build_message_map(
+        topic,
+        contexts.message_strategy,
+        api_key,
+    )
+    expert_context = contexts.without_roles(
+        "voice",
+        "ethics",
+        "audience",
+        "human_text",
+    )
     blueprint = telegram_team.build_editorial_blueprint(
         topic,
         expert_context,
         api_key,
         route.mode,
+        message_map,
     )
     blueprint_issues = telegram_team.full_blueprint_issues(
         topic,
@@ -261,12 +272,25 @@ def run_pipeline(
 
     voice_brief = telegram_team.build_voice_brief(
         topic,
-        contexts.voice,
+        contexts.author_voice,
         api_key,
     )
     draft = telegram_team.write_editorial_post(
         topic,
         blueprint,
+        voice_brief,
+        api_key,
+    )
+    human_text_context = notebook_live.build_human_text_context(
+        topic,
+        draft,
+        route.mode,
+    )
+    draft = telegram_team.human_edit_editorial_post(
+        topic,
+        blueprint,
+        draft,
+        human_text_context,
         voice_brief,
         api_key,
     )
@@ -293,6 +317,7 @@ def run_pipeline(
             voice_brief,
             api_key,
             draft_issues,
+            human_text_context,
         )
         final_text = telegram_team.clean_human_surface(topic, final_text)
         final_issues = telegram_team.editorial_contract_issues(topic, final_text)

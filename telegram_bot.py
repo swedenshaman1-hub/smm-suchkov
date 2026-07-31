@@ -431,13 +431,15 @@ async def _run_post_inner_v3(
     user_data: dict,
     feedback: str = None,
 ):
-    """Bounded expert pipeline: notebooks → blueprint → one draft → one audit."""
+    """Bounded pipeline: message map → blueprint → draft → human edit → audit."""
     route = team_registry.route_for(topic)
     reuse_previous = bool(
         feedback
         and user_data.get("last_post_topic") == topic
         and user_data.get("last_blueprint")
+        and user_data.get("last_message_map")
         and user_data.get("last_voice_brief")
+        and user_data.get("last_human_text_context")
         and user_data.get("last_final_tg")
     )
     try:
@@ -448,6 +450,8 @@ async def _run_post_inner_v3(
             )
             blueprint = user_data["last_blueprint"]
             voice_brief = user_data["last_voice_brief"]
+            human_text_context = user_data.get("last_human_text_context", "")
+            message_map = user_data.get("last_message_map", "")
             ethics_context = user_data.get("last_ethics_context", "")
             expert_context = user_data.get("last_analysis", blueprint)
             selected_notebooks = ()
@@ -455,9 +459,10 @@ async def _run_post_inner_v3(
             await msg.reply_text(
                 f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
                 f"Режим: {team_registry.MODE_LABELS[route.mode]}.\n"
-                "Сначала NotebookLM-эксперты принимают решения каждый в своей "
-                "области. Затем один главред фиксирует blueprint, один автор "
-                "пишет один текст. Максимум одна содержательная правка."
+                "Сначала Joanna Wiebe формирует карту сообщения, затем "
+                "NotebookLM-эксперты и главред фиксируют blueprint. Один автор "
+                "пишет текст, Ann Handley делает одну человечную редактуру. "
+                "Максимум одна содержательная правка."
             )
             await msg.reply_text(
                 "NotebookLM — собираю раздельные решения по языку, углу, "
@@ -493,7 +498,28 @@ async def _run_post_inner_v3(
             # Raw ethics language is intentionally excluded from creation:
             # it often names the very market metaphors it forbids. Ethics gets
             # the finished text as a veto, never ownership of the thesis.
-            expert_context = notebook_contexts.without_roles("voice", "ethics")
+            audience_memory = memory_utils.load("analyst")
+            audience_evidence = memory_utils.get_audience_profile(
+                audience_memory
+            )
+            await msg.reply_text(
+                "Joanna Wiebe — фиксирую конфликт, обещание читателю и три "
+                "честных хука до создания blueprint..."
+            )
+            message_map = await _run_blocking(
+                telegram_team.build_message_map,
+                topic,
+                notebook_contexts.message_strategy,
+                GEMINI_API_KEY,
+                audience_evidence,
+            )
+
+            expert_context = notebook_contexts.without_roles(
+                "voice",
+                "ethics",
+                "audience",
+                "human_text",
+            )
             ethics_context = notebook_contexts.ethics
             await msg.reply_text(
                 "Главред — свожу экспертные решения в один неизменяемый "
@@ -505,6 +531,7 @@ async def _run_post_inner_v3(
                 expert_context,
                 GEMINI_API_KEY,
                 route.mode,
+                message_map,
             )
             blueprint_issues = await _run_blocking(
                 telegram_team.full_blueprint_issues,
@@ -562,7 +589,7 @@ async def _run_post_inner_v3(
             voice_brief = await _run_blocking(
                 telegram_team.build_voice_brief,
                 topic,
-                notebook_contexts.voice,
+                notebook_contexts.author_voice,
                 GEMINI_API_KEY,
             )
 
@@ -577,6 +604,27 @@ async def _run_post_inner_v3(
             GEMINI_API_KEY,
             user_data.get("last_final_tg", "") if reuse_previous else "",
             feedback or "",
+        )
+
+        await msg.reply_text(
+            "Ann Handley — проверяю конкретный черновик по её NotebookLM, "
+            "затем один раз убираю лекционный тон, повторы и неестественные "
+            "конструкции, не меняя blueprint..."
+        )
+        human_text_context = await _run_blocking(
+            notebook_live.build_human_text_context,
+            topic,
+            draft,
+            route.mode,
+        )
+        draft = await _run_blocking(
+            telegram_team.human_edit_editorial_post,
+            topic,
+            blueprint,
+            draft,
+            human_text_context,
+            voice_brief,
+            GEMINI_API_KEY,
         )
         draft = telegram_team.clean_human_surface(topic, draft)
         draft_issues = telegram_team.editorial_contract_issues(topic, draft)
@@ -609,6 +657,7 @@ async def _run_post_inner_v3(
                 voice_brief,
                 GEMINI_API_KEY,
                 draft_issues,
+                human_text_context,
             )
             final_text = telegram_team.clean_human_surface(topic, final_text)
             final_issues = telegram_team.editorial_contract_issues(
@@ -652,7 +701,9 @@ async def _run_post_inner_v3(
         user_data["last_strategy"] = blueprint
         user_data["last_hook_brief"] = blueprint
         user_data["last_blueprint"] = blueprint
+        user_data["last_message_map"] = message_map
         user_data["last_voice_brief"] = voice_brief
+        user_data["last_human_text_context"] = human_text_context[:6000]
         user_data["last_ethics_context"] = ethics_context
         user_data["last_final_tg"] = final_text
         user_data["last_final_ig_post"] = ""

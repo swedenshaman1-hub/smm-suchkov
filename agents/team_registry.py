@@ -31,15 +31,14 @@ MODE_LABELS = {
 # A bounded council for each mode. Required notebooks are always queried;
 # these are the only additional advisers invited automatically.
 DEFAULT_OPTIONAL_NOTEBOOKS = {
-    EDITORIAL: ("smm02c_human_text",),
+    # Ann Handley is queried after a draft exists, not in the initial council.
+    EDITORIAL: (),
     BRAND: (
-        "smm02c_human_text",
         "smm05a_positioning",
         "smm07_brand_architecture",
         "smm08_creator_system",
     ),
     COMMERCIAL: (
-        "smm02c_human_text",
         "smm05a_positioning",
         "smm07_brand_architecture",
         "smm05b_distribution",
