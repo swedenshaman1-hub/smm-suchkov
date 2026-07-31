@@ -702,6 +702,15 @@ HUMAN_TEXT_EDIT_PROMPT = """Ты — редактор живого текста 
 
 Редактура формы не имеет права улучшать смысл ценой его подмены."""
 
+TECHNICAL_SURFACE_CLEANUP_PROMPT = """Ты — технический корректор готового поста.
+Исправь только перечисленные формальные дефекты: род обращения, согласование,
+управление, обязательный дефис или сломанную прямую речь. Нейтрализуй род через
+перестройку фразы, а не через скобки и формы вроде сделал(а).
+
+Запрещено менять хук, порядок абзацев, сцену, тезис, факты, причинность,
+метафоры, вывод и длину по существу. Не добавляй ни одного нового образа,
+объяснения или совета. Верни только полный исправленный пост."""
+
 SINGLE_AUDIT_PROMPT = """Ты — Игорь, единственный выпускающий редактор.
 Не переписывай пост. Сравни один черновик с утверждённым blueprint и этическим
 заключением NotebookLM.
@@ -1380,6 +1389,30 @@ def human_edit_editorial_post(
         user_msg,
         max_tokens=1800,
         temperature=0.15,
+        disable_thinking=True,
+    ).strip()
+
+
+def technical_surface_cleanup(
+    topic: str,
+    text: str,
+    issues: list[str],
+    api_key: str,
+) -> str:
+    """One non-semantic cleanup after the bounded editorial repair."""
+    user_msg = (
+        f"Исходная тема: «{topic}»\n\n"
+        f"ГОТОВЫЙ ПОСТ:\n{text}\n\n"
+        "ИСПРАВЬ ТОЛЬКО ЭТИ ФОРМАЛЬНЫЕ ДЕФЕКТЫ:\n- "
+        + "\n- ".join(issues)
+    )
+    return gemini_call(
+        api_key,
+        MODEL,
+        TECHNICAL_SURFACE_CLEANUP_PROMPT + BRAND_BOUNDARY,
+        user_msg,
+        max_tokens=3200,
+        temperature=0.0,
         disable_thinking=True,
     ).strip()
 
@@ -2694,6 +2727,25 @@ def editorial_publication_blockers(topic: str, text: str) -> list[str]:
         if issue.startswith(hard_contract_prefixes) and issue not in blockers:
             blockers.append(issue)
     return blockers
+
+
+def only_technical_surface_blockers(issues: list[str]) -> bool:
+    """Whether one non-semantic correction may safely replace a hard stop."""
+    if not issues:
+        return False
+    prefixes = (
+        "исправь грамматику",
+        "исправь согласование",
+        "сохрани обязательный дефис",
+        "не смешивай обращения",
+        "не назначай партнёру мужской пол",
+        "сохрани нейтральный пол",
+        "не смешивай перспективы",
+        "убери мужскую форму",
+        "убери женскую форму",
+        "перестрой прямую речь",
+    )
+    return all(issue.startswith(prefixes) for issue in issues)
 
 
 def strategy_warnings(text: str) -> list[str]:

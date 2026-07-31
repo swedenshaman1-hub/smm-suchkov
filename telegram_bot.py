@@ -684,6 +684,28 @@ async def _run_post_inner_v3(
                 topic,
                 final_text,
             )
+            if telegram_team.only_technical_surface_blockers(final_blockers):
+                await msg.reply_text(
+                    "Света — после содержательной правки остался только "
+                    "формальный дефект. Исправляю род и грамматику без "
+                    "изменения смысла..."
+                )
+                final_text = await _run_blocking(
+                    telegram_team.technical_surface_cleanup,
+                    topic,
+                    final_text,
+                    final_blockers,
+                    GEMINI_API_KEY,
+                )
+                final_text = telegram_team.clean_human_surface(topic, final_text)
+                final_issues = telegram_team.editorial_contract_issues(
+                    topic,
+                    final_text,
+                )
+                final_blockers = telegram_team.editorial_publication_blockers(
+                    topic,
+                    final_text,
+                )
             if final_blockers:
                 await msg.reply_text(
                     "Ограниченный цикл завершён. Не публикую текст, который "

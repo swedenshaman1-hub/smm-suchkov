@@ -493,6 +493,34 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertIn("сохрани обязательный дефис в слове «по-разному»", issues)
 
+    def test_gender_form_is_eligible_for_one_technical_cleanup(self):
+        self.assertTrue(
+            telegram_team.only_technical_surface_blockers(
+                ["убери мужскую форму из обращения к смешанной аудитории"]
+            )
+        )
+        self.assertFalse(
+            telegram_team.only_technical_surface_blockers(
+                ["не приписывай человеку мотив сохранять образ или роль сильного"]
+            )
+        )
+
+    @patch("agents.telegram_team.gemini_call")
+    def test_technical_cleanup_cannot_change_meaning(self, call):
+        call.return_value = "Нейтрально исправленный пост."
+
+        result = telegram_team.technical_surface_cleanup(
+            TOPIC,
+            "Ты решил попросить о помощи.",
+            ["убери мужскую форму из обращения к смешанной аудитории"],
+            "test-key",
+        )
+
+        self.assertEqual("Нейтрально исправленный пост.", result)
+        system_prompt = call.call_args.args[2]
+        self.assertIn("Запрещено менять хук", system_prompt)
+        self.assertIn("Нейтрализуй род", system_prompt)
+
     def test_contract_rejects_assigned_strong_person_motive_and_reader_thought(self):
         topic = "Как отличить самостоятельность от привычки не просить поддержку"
         text = """Самостоятельность не требует всегда справляться в одиночку. Иногда просьба помогает увидеть доступные варианты.
