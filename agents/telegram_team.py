@@ -822,6 +822,47 @@ WRITER_ADDENDUM = """
 чтобы». Вместо «башка» всегда пиши «голова»."""
 
 
+FINAL_AUTHOR_CONTRACT = """
+
+Финальный контракт точности:
+- Ответь на точный вопрос темы, а не только опиши ситуацию. Если в теме есть
+  сравнение «сильнее», «слабее», «больше», «меньше» или «чем», прямо объясни
+  обе стороны сравнения в первых трёх абзацах и вернись к различию в финале.
+- Не превращай возможный человеческий опыт во всеобщий закон. Без надёжной
+  фактической опоры пиши «иногда», «может», «у некоторых людей», а не
+  «после долгого одиночества жизнь превращается» и не «человек всегда».
+- Вымышленная микросцена допустима, но в ней не более трёх предложений, одного
+  наблюдаемого действия и одной работающей детали. Не добавляй точные сроки,
+  имена, планы и предметы только ради красивой картинки. Слова «неважно» и
+  декоративные бытовые подробности означают, что деталь нужно удалить.
+- Не используй готовые образы «хорошо отлаженная система», «знакомая земля под
+  ногами», «шаг в неизвестность», «будущее не гарантировано». Пиши через
+  конкретное человеческое противоречие и простой живой русский язык.
+- Примени две или три настройки из brief голоса к ритму, синтаксису и способу
+  завершить мысль. Не копируй из SMM-06 содержание, биографию или заметный сленг.
+- Верни только текст поста. Не пиши «ГОТОВЫЙ ПОСТ», «ТЕЛЕГРАМ-ПОСТ»,
+  «ВАРИАНТ», заголовок отчёта или пояснение перед текстом.
+"""
+
+
+_EDITORIAL_SERVICE_LABEL_RE = re.compile(
+    r"^\s*(?:ГОТОВЫЙ\s+ПОСТ|ТЕЛЕГРАМ[- ]ПОСТ(?:\s+ГОТОВ)?|"
+    r"ВАРИАНТ(?:\s+[А-ЯA-Z0-9]+)?)\s*:?\s*",
+    re.IGNORECASE,
+)
+
+
+def clean_editorial_output(text: str) -> str:
+    """Remove only known model service wrappers, never a legitimate hook."""
+    clean = (text or "").strip().strip("`").strip()
+    for _ in range(2):
+        updated = _EDITORIAL_SERVICE_LABEL_RE.sub("", clean, count=1).strip()
+        if updated == clean:
+            break
+        clean = updated
+    return clean
+
+
 def build_voice_samples(posts: list, limit: int = 5) -> str:
     """Build a compact style-only reference from real channel publications."""
     samples = []
@@ -1364,17 +1405,19 @@ def write_editorial_post(
             f"ПРАВКА ДМИТРИЯ:\n{user_feedback}\n"
             "Сохрани blueprint и измени только то, о чём попросил Дмитрий."
         )
-    return _reasoning_call(
+    result = _reasoning_call(
         api_key,
         WRITER_MODEL,
         SINGLE_WRITER_PROMPT
         + WRITER_ADDENDUM
+        + FINAL_AUTHOR_CONTRACT
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
         max_tokens=7200,
         temperature=0.35,
-    ).strip()
+    )
+    return clean_editorial_output(result)
 
 
 def human_edit_editorial_post(
@@ -1395,15 +1438,19 @@ def human_edit_editorial_post(
         + "\n\nГОЛОС ДМИТРИЯ:\n"
         + voice_brief
     )
-    return gemini_call(
+    result = gemini_call(
         api_key,
         MODEL,
-        HUMAN_TEXT_EDIT_PROMPT + BRAND_BOUNDARY + _epistemic_guard(topic),
+        HUMAN_TEXT_EDIT_PROMPT
+        + FINAL_AUTHOR_CONTRACT
+        + BRAND_BOUNDARY
+        + _epistemic_guard(topic),
         user_msg,
         max_tokens=1800,
         temperature=0.15,
         disable_thinking=True,
-    ).strip()
+    )
+    return clean_editorial_output(result)
 
 
 def technical_surface_cleanup(
@@ -1419,7 +1466,7 @@ def technical_surface_cleanup(
         "ИСПРАВЬ ТОЛЬКО ЭТИ ФОРМАЛЬНЫЕ ДЕФЕКТЫ:\n- "
         + "\n- ".join(issues)
     )
-    return gemini_call(
+    result = gemini_call(
         api_key,
         MODEL,
         TECHNICAL_SURFACE_CLEANUP_PROMPT + BRAND_BOUNDARY,
@@ -1427,7 +1474,8 @@ def technical_surface_cleanup(
         max_tokens=3200,
         temperature=0.0,
         disable_thinking=True,
-    ).strip()
+    )
+    return clean_editorial_output(result)
 
 
 def audit_editorial_post(
@@ -1496,17 +1544,19 @@ def repair_editorial_post(
             "\n\nОБЯЗАТЕЛЬНО УСТРАНИ:\n- "
             + "\n- ".join(deterministic_issues)
         )
-    return _reasoning_call(
+    result = _reasoning_call(
         api_key,
         WRITER_MODEL,
         SINGLE_REPAIR_PROMPT
         + WRITER_ADDENDUM
+        + FINAL_AUTHOR_CONTRACT
         + BRAND_BOUNDARY
         + _epistemic_guard(topic),
         user_msg,
         max_tokens=7200,
         temperature=0.2,
-    ).strip()
+    )
+    return clean_editorial_output(result)
 
 
 def research(topic: str, api_key: str, notebook_context: str = "") -> str:
@@ -1825,7 +1875,7 @@ def _restore_required_russian_hyphens(text: str) -> str:
 
 def clean_human_surface(topic: str, text: str) -> str:
     """Apply Dmitry's final human-surface rules deterministically."""
-    clean = text.strip()
+    clean = clean_editorial_output(text)
     clean = re.sub(
         r"^\s*(?:#{1,6}\s*|\*{1,2})?(?:тема|заголовок)\s*:\s*",
         "",
@@ -2094,6 +2144,24 @@ def editorial_contract_issues(topic: str, text: str) -> list[str]:
             "замени шаблонный хук «В какой момент X превращается в Y?» "
             "на точное наблюдение или противоречие"
         )
+
+    if "сильнее" in topic_lower and not re.search(
+        r"\bсильнее\b|\bпуга\w*\s+(?:гораздо\s+)?больше\b|"
+        r"\bстрах\w*\b.{0,80}\bбольше\b",
+        lowered,
+        re.DOTALL,
+    ):
+        issues.append(
+            "ответь прямо, почему одно пугает сильнее другого; не описывай "
+            "только одну сторону сравнения"
+        )
+
+    if re.search(
+        r"\b(?:хорошо\s+отлаженн\w*\s+систем\w*|знаком\w*\s+земл\w*\s+под\s+ног\w*|"
+        r"шаг\w*\s+в\s+неизвестност\w*|будущ\w*\s+не\s+гарантирован\w*)\b",
+        lowered,
+    ):
+        issues.append("замени готовые метафоры и клише на конкретное человеческое наблюдение")
 
     has_ty = bool(re.search(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|твоё|твои|твоего|твою)\b", lowered))
     has_vy = bool(re.search(r"\b(?:вы|вас|вам|вами|ваш|ваша|ваше|ваши|вашего|вашу)\b", lowered))

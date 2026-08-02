@@ -1167,6 +1167,42 @@ class EditorialPipelineV3Tests(unittest.TestCase):
             "никаких новых сцен",
             telegram_team.SINGLE_REPAIR_PROMPT.lower(),
         )
+        self.assertIn("обе стороны сравнения", telegram_team.FINAL_AUTHOR_CONTRACT)
+        self.assertIn("Примени две или три настройки", telegram_team.FINAL_AUTHOR_CONTRACT)
+
+    def test_editorial_output_removes_only_service_wrapper(self):
+        self.assertEqual(
+            telegram_team.clean_editorial_output("ГОТОВЫЙ ПОСТ:\nЖивой хук."),
+            "Живой хук.",
+        )
+        self.assertEqual(
+            telegram_team.clean_editorial_output("После одиночества бывает страшно."),
+            "После одиночества бывает страшно.",
+        )
+
+    def test_comparative_topic_requires_direct_comparative_answer(self):
+        topic = (
+            "Почему хорошие отношения иногда пугают сильнее, "
+            "чем возможность снова остаться одному?"
+        )
+        vague = "Новые отношения могут пугать. Иногда привычное кажется безопасным."
+        direct = (
+            "Новые отношения иногда пугают сильнее одиночества, потому что "
+            "одиночество уже знакомо, а близость требует рискнуть привычным укладом."
+        )
+        self.assertTrue(
+            any("пугает сильнее" in issue for issue in telegram_team.editorial_contract_issues(topic, vague))
+        )
+        self.assertFalse(
+            any("пугает сильнее" in issue for issue in telegram_team.editorial_contract_issues(topic, direct))
+        )
+
+    def test_editorial_contract_flags_stock_metaphors(self):
+        issues = telegram_team.editorial_contract_issues(
+            "Почему перемены пугают?",
+            "Жизнь стала хорошо отлаженной системой. Это шаг в неизвестность.",
+        )
+        self.assertTrue(any("клише" in issue for issue in issues), issues)
 
 
 if __name__ == "__main__":
