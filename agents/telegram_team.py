@@ -2516,27 +2516,34 @@ def blueprint_contract_issues(topic: str, blueprint: str) -> list[str]:
 
 
 def blueprint_publication_blockers(issues: list[str]) -> list[str]:
-    """Keep the repaired blueprint bounded without hiding serious risks.
+    """Block only defects that make safe publication impossible.
 
-    Unsupported causal wording is still passed to the writer and auditor as a
-    program-level prohibition, but it no longer starts another blueprint loop.
-    Broken schema and unsafe relationship conclusions remain hard blockers.
+    A repaired blueprint must not stop the whole pipeline for style, metaphor,
+    a weak scene, an incomplete answer or an over-interpreted gesture. Those
+    defects become exclusions for the writer. Only a broken contract, harmful
+    relationship manipulation or fiction presented as fact remains blocking.
     """
     hard_markers = (
         "отсутствует раздел",
         "товарную логику",
         "доказанный уход",
         "доказанное решение партнёра",
-        "не отвечает честно",
-        "ложной бинарностью",
-        "доказательство отношений",
-        "семантический аудит",
     )
-    return [
-        issue
-        for issue in issues
-        if any(marker in issue for marker in hard_markers)
-    ]
+    factual_fraud_markers = (
+        "реальн", "клиент", "случай дмитрия", "исследован", "статистик",
+        "универсальн", "общего закона", "доказанный факт",
+    )
+    blockers: list[str] = []
+    for issue in issues:
+        lowered = issue.lower()
+        if any(marker in lowered for marker in hard_markers):
+            blockers.append(issue)
+            continue
+        if "семантический аудит" in lowered and any(
+            marker in lowered for marker in factual_fraud_markers
+        ):
+            blockers.append(issue)
+    return blockers
 
 
 def add_blueprint_cautions(blueprint: str, issues: list[str]) -> str:
@@ -2548,8 +2555,9 @@ def add_blueprint_cautions(blueprint: str, issues: list[str]) -> str:
         + "\n\nПРОГРАММНАЯ ОГОВОРКА К КАРКАСУ:\n"
         + "- "
         + "\n- ".join(issues)
-        + "\nФразы, соответствующие этим замечаниям, не являются частью тезиса. "
-        "Автор обязан оставить наблюдаемое различие без объяснения скрытой причины."
+        + "\nЭти замечания не останавливают выпуск. Автор обязан молча удалить "
+        "спорные утверждения, не использовать жест или предмет как доказательство "
+        "и оставить наблюдаемое различие без объяснения скрытой причины."
     )
 
 

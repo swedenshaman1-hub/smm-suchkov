@@ -406,6 +406,18 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn("ПРОГРАММНАЯ ОГОВОРКА К КАРКАСУ", cautioned)
         self.assertIn(issues[0], cautioned)
 
+    def test_gesture_interpretation_cannot_stop_writer_after_repair(self):
+        issues = [
+            "blueprint превращает жест или предмет сцены в доказательство отношений"
+        ]
+
+        self.assertEqual([], telegram_team.blueprint_publication_blockers(issues))
+        cautioned = telegram_team.add_blueprint_cautions(
+            valid_blueprint("Новый хук.", "Наблюдаемое различие."),
+            issues,
+        )
+        self.assertIn("не использовать жест или предмет как доказательство", cautioned)
+
     def test_unsafe_relationship_blueprint_remains_blocking(self):
         issues = [
             "blueprint переносит товарную логику или искусственный дефицит на отношения"
