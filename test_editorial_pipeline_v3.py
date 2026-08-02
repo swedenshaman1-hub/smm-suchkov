@@ -30,12 +30,16 @@ def valid_blueprint(hook: str, thesis: str) -> str:
 - этическая граница: не читать намерения другого человека
 ХУК:
 {hook}
+ЕДИНСТВЕННАЯ МИКРОСЦЕНА И ЕЁ ФУНКЦИЯ:
+Одна условная сцена показывает центральный выбор, но ничего не доказывает.
 ЛОГИКА:
 1. Желание сохранить близость само по себе понятно.
 2. Постоянное согласие убирает возможность узнать позицию человека.
 3. Честное присутствие не гарантирует исход, но возвращает отношениям реальность.
 КОНТРПРИМЕР ИЛИ ГРАНИЦА:
 Гибкость и забота могут быть зрелым выбором, если собственная позиция не исчезает.
+ФИНАЛЬНОЕ РАЗЛИЧЕНИЕ:
+Одно наблюдение не доказывает состояние отношений; важен доступный человеку выбор.
 ФИНАЛ:
 Вопрос не в количестве уступок, а в том, остаётся ли в них собственный выбор.
 ЗАПРЕЩЕНО В ТЕКСТЕ:
@@ -265,6 +269,57 @@ class EditorialPipelineV3Tests(unittest.TestCase):
 
         self.assertTrue(any("не отвечает честно" in issue for issue in unsafe_issues))
         self.assertFalse(any("не отвечает честно" in issue for issue in safe_issues))
+
+    def test_blueprint_rejects_binary_final_relationship_verdict(self):
+        blueprint = valid_blueprint(
+            "Разговор не всегда приносит облегчение.",
+            "Тяжесть сама по себе не доказывает ошибку.",
+        ).replace(
+            "Одно наблюдение не доказывает состояние отношений; важен доступный человеку выбор.",
+            "После разговора рядом либо союзник, либо чужой человек.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertTrue(any("ложной бинарностью" in issue for issue in issues), issues)
+
+    def test_blueprint_rejects_gesture_as_proof_of_contact(self):
+        blueprint = valid_blueprint(
+            "После разговора остаётся тишина.",
+            "Один жест не доказывает состояние отношений.",
+        ).replace(
+            "Одна условная сцена показывает центральный выбор, но ничего не доказывает.",
+            "Кивок подтверждает, что между людьми сохранился контакт.",
+        )
+
+        issues = telegram_team.blueprint_contract_issues(TOPIC, blueprint)
+
+        self.assertTrue(any("доказательство отношений" in issue for issue in issues), issues)
+
+    def test_contract_rejects_binary_final_relationship_verdict(self):
+        text = """После честного разговора может стать тяжелее. Само это чувство не доказывает, что разговор был ошибкой.
+
+Иногда требуется время, чтобы понять услышанное. Иногда трудность связана с формой разговора или его содержанием.
+
+Одна возможная сцена ничего не доказывает. Люди могут замолчать, а затем вернуться к разговору позже.
+
+Значение имеют безопасность разговора, возможность отвечать и последующие действия. Одного ощущения для вывода недостаточно.
+
+Главное понять, рядом с тобой союзник или чужой человек."""
+
+        issues = telegram_team.editorial_contract_issues(TOPIC, text)
+
+        self.assertTrue(any("ложную бинарность" in issue for issue in issues), issues)
+
+    def test_quality_rejects_chain_of_metaphor_families(self):
+        text = (
+            "Правда работает как обезболивающее и выносит проблему на свет. "
+            "Потом начинается новый путь, а между людьми растёт пропасть."
+        )
+
+        warnings = telegram_team.quality_warnings(text)
+
+        self.assertTrue(any("цепочку метафор" in item for item in warnings), warnings)
 
     def test_blueprint_rejects_human_value_tied_to_availability(self):
         blueprint = valid_blueprint(
