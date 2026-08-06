@@ -497,12 +497,26 @@ def _is_retryable_query_error(exc: Exception | None) -> bool:
 def build_topic_context(
     topic: str,
     explicit_mode: str | None = None,
+    notebook_keys: tuple[str, ...] | None = None,
 ) -> TopicContexts:
     """Fetch only the NotebookLM advisers relevant to this task."""
     global _last_success_at
 
     route = team_registry.route_for(topic, explicit_mode)
-    selected = _selected_notebooks(route)
+    if notebook_keys is None:
+        selected = _selected_notebooks(route)
+    else:
+        requested = set(notebook_keys)
+        selected = tuple(
+            notebook for notebook in route.notebooks
+            if notebook.key in requested
+        )
+        missing_keys = requested - {notebook.key for notebook in selected}
+        if missing_keys:
+            raise NotebookLiveError(
+                "не найдены запрошенные блокноты: "
+                + ", ".join(sorted(missing_keys))
+            )
     missing_required = tuple(
         notebook
         for notebook in selected
@@ -682,6 +696,59 @@ def build_human_text_context(
         if cached and now - cached[0] < CACHE_TTL_SECONDS:
             return f"Источник: {notebook.title}\n{cached[1]}"
 
+    _key, answer = _query_one(
+        notebook,
+        prompt,
+        auth.cookies,
+        max(2, QUERY_ATTEMPTS),
+        auth.csrf_token,
+        auth.session_id,
+    )
+    with _cache_lock:
+        _answer_cache[answer_key] = (time.time(), answer)
+    return f"Источник: {notebook.title}\n{answer}"
+
+
+def build_joanna_copy_context(
+    topic: str,
+    draft: str,
+    explicit_mode: str | None = None,
+) -> str:
+    """Ask Joanna Wiebe's notebook to direct one concrete copy rewrite."""
+    route = team_registry.route_for(topic, explicit_mode)
+    notebook = next(
+        (item for item in route.notebooks if item.key == "smm02a_audience"),
+        None,
+    )
+    if notebook is None or not notebook.resolved_id():
+        raise NotebookLiveError(
+            "для мастер-редактуры Joanna Wiebe не задан блокнот SMM-02A"
+        )
+    prompt = (
+        f"Тема Telegram-поста: «{topic}».\n\n"
+        f"ЧЕРНОВИК МАШИ:\n{draft}\n\n"
+        "Опирайся только на принципы и источники этого блокнота. Ты главный "
+        "мастер-копирайтер текста. Дай одно цельное решение для переработки "
+        "именно этого черновика: сохрани тему, выбери одну главную мысль, "
+        "усиль первые две фразы, выстрой естественное развитие и ясный финал. "
+        "Не собирай варианты и не добавляй психологические факты, которых нет "
+        "в теме. Удали всё, что выглядит отдельным эпизодом и не двигает мысль.\n\n"
+        "Ответ строго:\n"
+        "ГЛАВНАЯ МЫСЛЬ:\n"
+        "ХУК:\n"
+        "ЛОГИКА ТЕКСТА:\n"
+        "ЧТО УДАЛИТЬ:\n"
+        "КАК ЗАКОНЧИТЬ:"
+    )
+    auth = _load_auth()
+    answer_key = (
+        f"{PROMPT_VERSION}|joanna-master|{notebook.resolved_id()}|{prompt}"
+    )
+    now = time.time()
+    with _cache_lock:
+        cached = _answer_cache.get(answer_key)
+        if cached and now - cached[0] < CACHE_TTL_SECONDS:
+            return f"Источник: {notebook.title}\n{cached[1]}"
     _key, answer = _query_one(
         notebook,
         prompt,

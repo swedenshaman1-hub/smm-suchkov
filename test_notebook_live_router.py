@@ -5,6 +5,36 @@ from agents import notebook_live, team_registry
 
 
 class NotebookLiveRouterTests(unittest.TestCase):
+    @patch("agents.notebook_live._query_one")
+    @patch("agents.notebook_live._load_auth")
+    def test_simple_post_route_queries_only_joanna_and_dmitry_voice(
+        self,
+        load_auth,
+        query_one,
+    ):
+        load_auth.return_value = notebook_live.NotebookAuth(
+            cookies={"SID": "test"},
+        )
+        query_one.side_effect = lambda notebook, *_args, **_kwargs: (
+            notebook.key,
+            f"Ответ {notebook.key}",
+        )
+        with patch.object(notebook_live, "_cache", {}), patch.object(
+            notebook_live, "_answer_cache", {}
+        ):
+            contexts = notebook_live.build_topic_context(
+                "Уникальная тема простого маршрута",
+                team_registry.EDITORIAL,
+                ("smm02a_audience", "smm06_voice"),
+            )
+
+        self.assertEqual(
+            {"smm02a_audience", "smm06_voice"},
+            set(contexts.selected_notebooks),
+        )
+        queried = {call.args[0].key for call in query_one.call_args_list}
+        self.assertEqual({"smm02a_audience", "smm06_voice"}, queried)
+
     def test_editorial_selection_is_bounded_and_excludes_sales(self):
         route = team_registry.route_for("Как не торопиться с важным ответом")
         selected = notebook_live._selected_notebooks(route)
@@ -145,6 +175,32 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("Уникальный черновик для Ann", prompt)
         self.assertIn("Не пиши новый пост", prompt)
         self.assertGreaterEqual(query_one.call_args.args[3], 2)
+
+    @patch("agents.notebook_live._query_one")
+    @patch("agents.notebook_live._load_auth")
+    def test_joanna_master_receives_the_concrete_draft(
+        self,
+        load_auth,
+        query_one,
+    ):
+        load_auth.return_value = notebook_live.NotebookAuth(
+            cookies={"SID": "test"},
+        )
+        query_one.return_value = (
+            "smm02a_audience",
+            "ГЛАВНАЯ МЫСЛЬ: один цельный текст",
+        )
+        with patch.object(notebook_live, "_answer_cache", {}):
+            result = notebook_live.build_joanna_copy_context(
+                "Тестовая тема",
+                "Уникальный черновик для Joanna.",
+                team_registry.EDITORIAL,
+            )
+
+        self.assertIn("ГЛАВНАЯ МЫСЛЬ", result)
+        prompt = query_one.call_args.args[1]
+        self.assertIn("Уникальный черновик для Joanna", prompt)
+        self.assertIn("главный мастер-копирайтер", prompt)
 
     def test_empty_notebook_answer_is_retryable(self):
         error = notebook_live.NotebookLiveError(

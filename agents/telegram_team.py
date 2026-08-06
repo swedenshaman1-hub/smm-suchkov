@@ -896,6 +896,103 @@ def clean_editorial_output(text: str) -> str:
     return clean
 
 
+SIMPLE_DRAFT_PROMPT = """Ты — Маша. Напиши один цельный черновик Telegram-поста.
+
+У тебя есть только тема Дмитрия. Держись именно её и прямо ответь на вопрос,
+который в ней задан. Выбери одну главную мысль и развивай её от начала до
+конца. Первые две фразы должны сразу объяснять, о чём пост и зачем читать.
+Пиши простым живым русским языком, без лекции и набора отдельных эпизодов.
+Не выдумывай исследования, диагнозы, биографию читателя и скрытые мотивы.
+Один короткий возможный пример допустим только если без него мысль теряется.
+
+Объём 900–1500 знаков. Верни только черновик поста."""
+
+
+JOANNA_MASTER_PROMPT = """Ты — главный мастер-копирайтер Telegram-поста.
+
+Перепиши черновик как один цельный текст, используя решение Joanna Wiebe из
+NotebookLM. Сохрани тему и честный смысл, но свободно меняй хук, абзацы,
+формулировки и финал. Каждый абзац должен продолжать предыдущий. Удали всё,
+что похоже на отдельный эпизод, декоративную сцену, клише или повтор.
+Читателю с первых двух фраз должно быть понятно, о чём пост. Ответ на вопрос
+темы должен прозвучать прямо, а финал должен завершать мысль, а не давать
+дежурный психологический совет. Не добавляй фактов и причин, которых нет в
+теме. Верни только полный готовый пост без отчёта и вариантов."""
+
+
+DMITRY_VOICE_PASS_PROMPT = """Ты — редактор голоса Дмитрия.
+
+Сохрани мысль, логику, хук и финал готового поста. Из настроек SMM-06 возьми
+только естественный ритм, длину фраз, синтаксис и привычную лексику Дмитрия.
+Не добавляй содержание, биографию, терапевтическое позиционирование, сленг и
+новые примеры. Исправь неестественный русский. Верни только полный пост."""
+
+
+def write_simple_draft(
+    topic: str,
+    api_key: str,
+    previous_text: str = "",
+    feedback: str = "",
+) -> str:
+    """One coherent draft from the user's topic, without expert scaffolding."""
+    user_msg = f"ТЕМА:\n{topic}"
+    if previous_text and feedback:
+        user_msg += (
+            f"\n\nПРЕДЫДУЩИЙ ТЕКСТ:\n{previous_text}\n\n"
+            f"ПРАВКА ДМИТРИЯ:\n{feedback}\n"
+            "Измени только то, о чём попросил Дмитрий."
+        )
+    result = gemini_call(
+        api_key,
+        MODEL,
+        SIMPLE_DRAFT_PROMPT + BRAND_BOUNDARY,
+        user_msg,
+        max_tokens=2600,
+        temperature=0.45,
+        disable_thinking=True,
+    )
+    return clean_editorial_output(result)
+
+
+def joanna_master_edit(
+    topic: str,
+    draft: str,
+    joanna_context: str,
+    api_key: str,
+) -> str:
+    """One authoritative copy rewrite guided by Joanna's NotebookLM."""
+    result = _reasoning_call(
+        api_key,
+        EDITOR_MODEL,
+        JOANNA_MASTER_PROMPT + BRAND_BOUNDARY,
+        f"ТЕМА:\n{topic}\n\nЧЕРНОВИК:\n{draft}\n\n"
+        f"РЕШЕНИЕ JOANNA WIEBE ИЗ NOTEBOOKLM:\n{joanna_context}",
+        max_tokens=5200,
+        temperature=0.25,
+    )
+    return clean_editorial_output(result)
+
+
+def apply_dmitry_voice(
+    topic: str,
+    text: str,
+    voice_brief: str,
+    api_key: str,
+) -> str:
+    """Final style-only pass grounded in SMM-06."""
+    result = gemini_call(
+        api_key,
+        MODEL,
+        DMITRY_VOICE_PASS_PROMPT + BRAND_BOUNDARY,
+        f"ТЕМА:\n{topic}\n\nГОТОВЫЙ ТЕКСТ:\n{text}\n\n"
+        f"НАСТРОЙКИ ГОЛОСА SMM-06:\n{voice_brief}",
+        max_tokens=2600,
+        temperature=0.15,
+        disable_thinking=True,
+    )
+    return clean_editorial_output(result)
+
+
 def build_voice_samples(posts: list, limit: int = 5) -> str:
     """Build a compact style-only reference from real channel publications."""
     samples = []

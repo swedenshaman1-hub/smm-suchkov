@@ -47,6 +47,13 @@ def valid_blueprint(hook: str, thesis: str) -> str:
 
 
 class EditorialPipelineV3Tests(unittest.TestCase):
+    def test_simple_pipeline_prompts_have_one_authoritative_copy_pass(self):
+        self.assertIn("один цельный черновик", telegram_team.SIMPLE_DRAFT_PROMPT)
+        self.assertIn("главный мастер-копирайтер", telegram_team.JOANNA_MASTER_PROMPT)
+        self.assertIn("SMM-06", telegram_team.DMITRY_VOICE_PASS_PROMPT)
+        self.assertNotIn("blueprint", telegram_team.SIMPLE_DRAFT_PROMPT.lower())
+        self.assertNotIn("этическ", telegram_team.SIMPLE_DRAFT_PROMPT.lower())
+
     @patch("agents.telegram_team.gemini_call")
     def test_message_map_is_built_before_blueprint_without_invented_voc(self, call):
         call.return_value = """КАРТА СООБЩЕНИЯ: ГОТОВА

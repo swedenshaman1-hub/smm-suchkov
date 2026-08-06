@@ -431,6 +431,168 @@ async def _run_post_inner_v3(
     user_data: dict,
     feedback: str = None,
 ):
+    """Simple pipeline: Masha draft -> Joanna master copy -> Dmitry voice."""
+    route = team_registry.route_for(topic)
+    reuse_previous = bool(
+        feedback
+        and user_data.get("last_post_topic") == topic
+        and user_data.get("last_final_tg")
+        and user_data.get("last_voice_brief")
+    )
+    try:
+        if reuse_previous:
+            voice_brief = user_data["last_voice_brief"]
+            await msg.reply_text(
+                "Маша — вношу только твою правку в предыдущий текст..."
+            )
+        else:
+            await msg.reply_text(
+                f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
+                "Рабочая цепочка: Маша пишет один цельный черновик, Joanna "
+                "Wiebe делает мастер-редактуру, SMM-06 возвращает голос Дмитрия."
+            )
+            await msg.reply_text(
+                "NotebookLM — запрашиваю только Joanna Wiebe и голос Дмитрия..."
+            )
+            try:
+                notebook_contexts = await _run_blocking(
+                    notebook_live.build_topic_context,
+                    topic,
+                    route.mode,
+                    ("smm02a_audience", "smm06_voice"),
+                )
+            except notebook_live.NotebookLiveError as exc:
+                await msg.reply_text(
+                    "Не начинаю текст: два обязательных NotebookLM-блокнота "
+                    f"не ответили. Причина: {exc}"
+                )
+                return
+            await msg.reply_text(
+                "NotebookLM — готовы: "
+                + ", ".join(notebook_contexts.selected_notebooks)
+                + "."
+            )
+            voice_brief = await _run_blocking(
+                telegram_team.build_voice_brief,
+                topic,
+                notebook_contexts.author_voice,
+                GEMINI_API_KEY,
+            )
+
+        await msg.reply_text(
+            "Маша — пишу один связный черновик прямо по заданной теме..."
+        )
+        draft = await _run_blocking(
+            telegram_team.write_simple_draft,
+            topic,
+            GEMINI_API_KEY,
+            user_data.get("last_final_tg", "") if reuse_previous else "",
+            feedback or "",
+        )
+
+        await msg.reply_text(
+            "Joanna Wiebe — перестраиваю черновик в один цельный пост..."
+        )
+        try:
+            joanna_context = await _run_blocking(
+                notebook_live.build_joanna_copy_context,
+                topic,
+                draft,
+                route.mode,
+            )
+        except notebook_live.NotebookLiveError as exc:
+            await msg.reply_text(
+                "Мастер-копирайтер Joanna Wiebe не ответил. Пост не подменяю "
+                f"обычной редактурой. Причина: {exc}"
+            )
+            return
+        master_text = await _run_blocking(
+            telegram_team.joanna_master_edit,
+            topic,
+            draft,
+            joanna_context,
+            GEMINI_API_KEY,
+        )
+
+        await msg.reply_text(
+            "SMM-06 — возвращаю тексту ритм и лексику Дмитрия, не меняя смысл..."
+        )
+        final_text = await _run_blocking(
+            telegram_team.apply_dmitry_voice,
+            topic,
+            master_text,
+            voice_brief,
+            GEMINI_API_KEY,
+        )
+        final_text = telegram_team.clean_editorial_output(final_text)
+        if not final_text.strip():
+            await msg.reply_text("Не публикую пустой ответ модели. Повтори запрос.")
+            return
+        if len(final_text) > 3900:
+            await msg.reply_text(
+                "Не публикую технически слишком длинный ответ Telegram. "
+                "Сформулируй тему короче."
+            )
+            return
+
+        memory_utils.register_published(
+            topic,
+            angle=joanna_context[:300],
+            formats=["telegram_post"],
+        )
+        if feedback:
+            for agent_id in ("copywriter", "humanizer"):
+                mem = memory_utils.load(agent_id)
+                memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
+                memory_utils.save(agent_id, mem)
+
+        user_data["last_post_topic"] = topic
+        user_data["last_analysis"] = joanna_context[:10000]
+        user_data["last_strategy"] = joanna_context
+        user_data["last_hook_brief"] = joanna_context
+        user_data["last_blueprint"] = joanna_context
+        user_data["last_message_map"] = joanna_context
+        user_data["last_voice_brief"] = voice_brief
+        user_data["last_human_text_context"] = joanna_context[:6000]
+        user_data["last_ethics_context"] = ""
+        user_data["last_final_tg"] = final_text
+        user_data["last_final_ig_post"] = ""
+        user_data["last_pipeline_mode"] = "post"
+        user_data["pending_ig_sections"] = {}
+        user_data["waiting_feedback"] = False
+        _persist_session(msg.chat_id, user_data)
+
+        await msg.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━"
+        )
+        await _send(msg, final_text)
+        await msg.reply_text(
+            "Если нужна правка — нажми кнопку и напиши, что изменить.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Доработать пост", callback_data="revise")
+            ]]),
+        )
+    except Exception as exc:
+        logger.exception("Ошибка в simple copywriter Telegram pipeline")
+        if (
+            "503" in str(exc)
+            or "UNAVAILABLE" in str(exc)
+            or "overloaded" in str(exc).lower()
+        ):
+            await msg.reply_text(
+                "Gemini временно перегружен даже после автоматического "
+                "переключения на резервную модель. Попробуй позднее."
+            )
+        else:
+            await msg.reply_text(f"Ошибка: {exc}")
+
+
+async def _run_post_inner_v3_legacy(
+    msg: Message,
+    topic: str,
+    user_data: dict,
+    feedback: str = None,
+):
     """Bounded pipeline: message map → blueprint → draft → human edit → audit."""
     route = team_registry.route_for(topic)
     reuse_previous = bool(
