@@ -15,6 +15,28 @@ EDITOR_MODEL = os.environ.get("GEMINI_EDITOR_MODEL", "gemini-2.5-pro")
 WRITER_MODEL = os.environ.get("GEMINI_WRITER_MODEL", "gemini-2.5-pro")
 
 
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """Return True for provider/network failures safe to retry on Flash."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "429",
+            "500",
+            "502",
+            "503",
+            "504",
+            "unavailable",
+            "overloaded",
+            "high demand",
+            "timed out",
+            "timeout",
+            "connection reset",
+            "server disconnected",
+        )
+    )
+
+
 def _reasoning_call(
     api_key: str,
     primary_model: str,
@@ -24,7 +46,12 @@ def _reasoning_call(
     max_tokens: int,
     temperature: float,
 ) -> str:
-    """Use Pro reasoning, but never fail the pipeline on an empty thought-only response."""
+    """Use Pro reasoning with a transparent Flash failover.
+
+    ``gemini_call`` already retries transient failures five times. If Pro is
+    still unavailable after those retries, repeating the Telegram command is
+    pointless, so continue the same stage on Flash with the exact same inputs.
+    """
     try:
         return gemini_call(
             api_key,
@@ -35,8 +62,14 @@ def _reasoning_call(
             temperature=temperature,
             disable_thinking=False,
         )
-    except ValueError as exc:
-        if "пустой ответ" not in str(exc).lower() or primary_model == MODEL:
+    except Exception as exc:
+        empty_response = (
+            isinstance(exc, ValueError)
+            and "пустой ответ" in str(exc).lower()
+        )
+        if primary_model == MODEL or not (
+            empty_response or _is_transient_gemini_error(exc)
+        ):
             raise
         return gemini_call(
             api_key,

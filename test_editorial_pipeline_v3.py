@@ -167,6 +167,44 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertEqual(telegram_team.MODEL, mocked.call_args_list[1].args[1])
         self.assertFalse(mocked.call_args_list[1].kwargs["disable_thinking"])
 
+    def test_reasoning_call_falls_back_when_pro_stays_overloaded(self):
+        with patch(
+            "agents.telegram_team.gemini_call",
+            side_effect=[
+                RuntimeError("503 UNAVAILABLE: model is experiencing high demand"),
+                "готовый текст через резервную модель",
+            ],
+        ) as mocked:
+            result = telegram_team._reasoning_call(
+                "key",
+                "gemini-2.5-pro",
+                "system",
+                "user",
+                max_tokens=7200,
+                temperature=0.2,
+            )
+
+        self.assertEqual("готовый текст через резервную модель", result)
+        self.assertEqual("gemini-2.5-pro", mocked.call_args_list[0].args[1])
+        self.assertEqual(telegram_team.MODEL, mocked.call_args_list[1].args[1])
+
+    def test_reasoning_call_does_not_hide_invalid_request(self):
+        with patch(
+            "agents.telegram_team.gemini_call",
+            side_effect=RuntimeError("400 INVALID_ARGUMENT"),
+        ) as mocked:
+            with self.assertRaisesRegex(RuntimeError, "INVALID_ARGUMENT"):
+                telegram_team._reasoning_call(
+                    "key",
+                    "gemini-2.5-pro",
+                    "system",
+                    "user",
+                    max_tokens=7200,
+                    temperature=0.2,
+                )
+
+        self.assertEqual(1, mocked.call_count)
+
     def test_blueprint_fidelity_audit_accepts_grounded_carкас(self):
         with patch(
             "agents.telegram_team._reasoning_call",
