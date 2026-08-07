@@ -431,6 +431,141 @@ async def _run_post_inner_v3(
     user_data: dict,
     feedback: str = None,
 ):
+    """One-pass writer room: expertise, copy, hook and human language."""
+    route = team_registry.route_for(topic)
+    reuse_previous = bool(
+        feedback
+        and user_data.get("last_post_topic") == topic
+        and user_data.get("last_final_tg")
+        and user_data.get("last_analysis")
+    )
+    try:
+        if reuse_previous:
+            editorial_context = user_data["last_analysis"]
+            await msg.reply_text(
+                "Редакция — сохраняю один текст и вношу только твою правку..."
+            )
+        else:
+            await msg.reply_text(
+                f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
+                "Одна редакция, один автор, один готовый текст. "
+                "Последовательных переписываний не будет."
+            )
+            await msg.reply_text(
+                "NotebookLM — собираю четыре коротких заключения: экспертная "
+                "опора и голос Дмитрия, копирайтинг Joanna Wiebe, хук Paddy "
+                "Galloway и живой язык Ann Handley..."
+            )
+            try:
+                contexts = await _run_blocking(
+                    notebook_live.build_topic_context,
+                    topic,
+                    route.mode,
+                    (
+                        "smm02a_audience",
+                        "smm02c_human_text",
+                        "smm06_voice",
+                        "smm09_hooks",
+                    ),
+                )
+            except notebook_live.NotebookLiveError as exc:
+                await msg.reply_text(
+                    "Не начинаю текст: редакционные NotebookLM-блокноты "
+                    f"не ответили. Причина: {exc}"
+                )
+                return
+            editorial_context = (
+                "=== ДМИТРИЙ: ЭКСПЕРТИЗА И ГОЛОС ===\n"
+                + contexts.author_voice
+                + "\n\n=== JOANNA WIEBE: ЦЕНТРАЛЬНАЯ МЫСЛЬ ===\n"
+                + contexts.message_strategy
+                + "\n\n=== PADDY GALLOWAY: ТОЛЬКО ХУК ===\n"
+                + contexts.dramaturgy
+                + "\n\n=== ANN HANDLEY: ЖИВОЙ ЯЗЫК ===\n"
+                + contexts.human_text
+            )
+            await msg.reply_text(
+                "NotebookLM — четыре заключения готовы. Передаю их одному автору..."
+            )
+
+        await msg.reply_text(
+            "Автор — пишу пост один раз, удерживая одну мысль от хука до финала..."
+        )
+        final_text = await _run_blocking(
+            telegram_team.write_one_pass_editorial_post,
+            topic,
+            editorial_context,
+            GEMINI_API_KEY,
+            user_data.get("last_final_tg", "") if reuse_previous else "",
+            feedback or "",
+        )
+        final_text = telegram_team.clean_editorial_output(final_text)
+        if not final_text.strip():
+            await msg.reply_text("Не публикую пустой ответ модели. Повтори запрос.")
+            return
+        if len(final_text) > 3900:
+            await msg.reply_text(
+                "Ответ превысил технический предел Telegram. Сформулируй тему короче."
+            )
+            return
+
+        memory_utils.register_published(
+            topic,
+            angle=editorial_context[:300],
+            formats=["telegram_post"],
+        )
+        if feedback:
+            mem = memory_utils.load("copywriter")
+            memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
+            memory_utils.save("copywriter", mem)
+
+        user_data["last_post_topic"] = topic
+        user_data["last_analysis"] = editorial_context[:16000]
+        user_data["last_strategy"] = editorial_context[:8000]
+        user_data["last_hook_brief"] = editorial_context[:8000]
+        user_data["last_blueprint"] = editorial_context[:8000]
+        user_data["last_message_map"] = editorial_context[:8000]
+        user_data["last_voice_brief"] = contexts.author_voice if not reuse_previous else ""
+        user_data["last_human_text_context"] = editorial_context[:6000]
+        user_data["last_ethics_context"] = ""
+        user_data["last_final_tg"] = final_text
+        user_data["last_final_ig_post"] = ""
+        user_data["last_pipeline_mode"] = "post"
+        user_data["pending_ig_sections"] = {}
+        user_data["waiting_feedback"] = False
+        _persist_session(msg.chat_id, user_data)
+
+        await msg.reply_text(
+            "━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━"
+        )
+        await _send(msg, final_text)
+        await msg.reply_text(
+            "Если нужна правка — нажми кнопку и напиши, что изменить.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Доработать пост", callback_data="revise")
+            ]]),
+        )
+    except Exception as exc:
+        logger.exception("Ошибка в one-pass editorial pipeline")
+        if (
+            "503" in str(exc)
+            or "UNAVAILABLE" in str(exc)
+            or "overloaded" in str(exc).lower()
+        ):
+            await msg.reply_text(
+                "Gemini временно перегружен даже после автоматического "
+                "переключения на резервную модель. Попробуй позднее."
+            )
+        else:
+            await msg.reply_text(f"Ошибка: {exc}")
+
+
+async def _run_post_inner_v3_three_pass_legacy(
+    msg: Message,
+    topic: str,
+    user_data: dict,
+    feedback: str = None,
+):
     """Simple pipeline: Masha draft -> Joanna master copy -> Dmitry voice."""
     route = team_registry.route_for(topic)
     reuse_previous = bool(

@@ -7,7 +7,7 @@ from agents import notebook_live, team_registry
 class NotebookLiveRouterTests(unittest.TestCase):
     @patch("agents.notebook_live._query_one")
     @patch("agents.notebook_live._load_auth")
-    def test_simple_post_route_queries_only_joanna_and_dmitry_voice(
+    def test_one_pass_post_route_queries_only_four_editorial_notebooks(
         self,
         load_auth,
         query_one,
@@ -25,15 +25,33 @@ class NotebookLiveRouterTests(unittest.TestCase):
             contexts = notebook_live.build_topic_context(
                 "Уникальная тема простого маршрута",
                 team_registry.EDITORIAL,
-                ("smm02a_audience", "smm06_voice"),
+                (
+                    "smm02a_audience",
+                    "smm02c_human_text",
+                    "smm06_voice",
+                    "smm09_hooks",
+                ),
             )
 
         self.assertEqual(
-            {"smm02a_audience", "smm06_voice"},
+            {
+                "smm02a_audience",
+                "smm02c_human_text",
+                "smm06_voice",
+                "smm09_hooks",
+            },
             set(contexts.selected_notebooks),
         )
         queried = {call.args[0].key for call in query_one.call_args_list}
-        self.assertEqual({"smm02a_audience", "smm06_voice"}, queried)
+        self.assertEqual(
+            {
+                "smm02a_audience",
+                "smm02c_human_text",
+                "smm06_voice",
+                "smm09_hooks",
+            },
+            queried,
+        )
 
     def test_editorial_selection_is_bounded_and_excludes_sales(self):
         route = team_registry.route_for("Как не торопиться с важным ответом")
@@ -104,16 +122,17 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("Человеческая редактура", voice_context)
         self.assertIn("Голос Дмитрия", voice_context)
 
-    def test_voice_query_is_style_only(self):
+    def test_dmitry_query_separates_expertise_from_voice(self):
         prompt = notebook_live._query_prompt(
             "Почему после решения не пришло облегчение",
             "voice",
         )
 
-        self.assertIn("только по слышимой форме речи", prompt)
-        self.assertIn("Не объясняй рабочую тему", prompt)
-        self.assertIn("темы головы и", prompt)
-        self.assertIn("тела, энергии, терапии", prompt)
+        self.assertIn("ЭКСПЕРТНАЯ ОПОРА", prompt)
+        self.assertIn("Не достраивай психологическую причину", prompt)
+        self.assertIn("ГРАНИЦА ЗНАНИЯ", prompt)
+        self.assertIn("не переноси в новую тему", prompt)
+        self.assertIn("телесные, энергетические или терапевтические", prompt)
         self.assertIn("«башка», «блин», «головастики»", prompt)
         self.assertIn("message-map-human-edit", notebook_live.PROMPT_VERSION)
 

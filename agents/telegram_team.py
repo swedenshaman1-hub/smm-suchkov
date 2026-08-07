@@ -928,6 +928,25 @@ DMITRY_VOICE_PASS_PROMPT = """Ты — редактор голоса Дмитр�
 новые примеры. Исправь неестественный русский. Верни только полный пост."""
 
 
+ONE_PASS_EDITORIAL_PROMPT = """Ты — единственный автор Telegram-поста Дмитрия.
+
+Перед тобой четыре коротких заключения редакции. У каждого только одна власть:
+SMM-06 даёт экспертную опору и голос Дмитрия; Joanna Wiebe помогает выбрать
+одну главную мысль; Paddy Galloway предлагает только вход; Ann Handley помогает
+сделать русский язык живым. Ни один из них не пишет отдельный фрагмент поста.
+
+Напиши текст один раз как единое размышление одного человека. Держись вопроса
+темы, выбери одну мысль и проведи её через весь текст. Первые две фразы должны
+быть понятны без заголовка. Каждый следующий абзац продолжает предыдущий, а не
+начинает новый эпизод. Не выдумывай сцены, биографию читателя, диагнозы, работу
+мозга, защитные механизмы и единственную скрытую причину. Если SMM-06 не даёт
+экспертной опоры, честно рассуждай через наблюдаемое различие, а не изображай
+научное объяснение. Используй нормальную русскую пунктуацию и цельные фразы.
+Финал завершает мысль без приказа, морали и дежурного утешения.
+
+Объём 1000–1700 знаков. Верни только готовый пост."""
+
+
 def write_simple_draft(
     topic: str,
     api_key: str,
@@ -989,6 +1008,35 @@ def apply_dmitry_voice(
         max_tokens=2600,
         temperature=0.15,
         disable_thinking=True,
+    )
+    return clean_editorial_output(result)
+
+
+def write_one_pass_editorial_post(
+    topic: str,
+    editorial_context: str,
+    api_key: str,
+    previous_text: str = "",
+    feedback: str = "",
+) -> str:
+    """Write once from four bounded advisers; no downstream rewriting."""
+    user_msg = (
+        f"ТЕМА ДМИТРИЯ:\n{topic}\n\n"
+        f"ЗАКЛЮЧЕНИЯ РЕДАКЦИИ ИЗ NOTEBOOKLM:\n{editorial_context}"
+    )
+    if previous_text and feedback:
+        user_msg += (
+            f"\n\nПРЕДЫДУЩИЙ ПОСТ:\n{previous_text}\n\n"
+            f"ПРАВКА ДМИТРИЯ:\n{feedback}\n"
+            "Сохрани удачную основу и внеси указанную правку в один новый текст."
+        )
+    result = _reasoning_call(
+        api_key,
+        WRITER_MODEL,
+        ONE_PASS_EDITORIAL_PROMPT + BRAND_BOUNDARY,
+        user_msg,
+        max_tokens=5200,
+        temperature=0.35,
     )
     return clean_editorial_output(result)
 

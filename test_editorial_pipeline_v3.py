@@ -54,6 +54,15 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertNotIn("blueprint", telegram_team.SIMPLE_DRAFT_PROMPT.lower())
         self.assertNotIn("этическ", telegram_team.SIMPLE_DRAFT_PROMPT.lower())
 
+    def test_one_pass_prompt_assigns_bounded_roles_and_single_author(self):
+        prompt = telegram_team.ONE_PASS_EDITORIAL_PROMPT
+        self.assertIn("единственный автор", prompt)
+        self.assertIn("SMM-06 даёт экспертную опору", prompt)
+        self.assertIn("Paddy Galloway предлагает только вход", prompt)
+        self.assertIn("Ann Handley помогает", prompt)
+        self.assertIn("Напиши текст один раз", prompt)
+        self.assertNotIn("blueprint", prompt.lower())
+
     @patch("agents.telegram_team.gemini_call")
     def test_message_map_is_built_before_blueprint_without_invented_voc(self, call):
         call.return_value = """КАРТА СООБЩЕНИЯ: ГОТОВА
