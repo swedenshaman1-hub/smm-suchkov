@@ -63,6 +63,13 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn("Напиши текст один раз", prompt)
         self.assertNotIn("blueprint", prompt.lower())
 
+    def test_one_pass_prompt_blocks_copywriting_showmanship(self):
+        prompt = telegram_team.ONE_PASS_EDITORIAL_PROMPT
+        self.assertIn("Не подменяй точность эффектной фразой", prompt)
+        self.assertIn("ложные развилки", prompt)
+        self.assertIn("крайними примерами", prompt)
+        self.assertIn("две правдоподобные трактовки", prompt)
+
     @patch("agents.telegram_team.gemini_call")
     def test_message_map_is_built_before_blueprint_without_invented_voc(self, call):
         call.return_value = """КАРТА СООБЩЕНИЯ: ГОТОВА
