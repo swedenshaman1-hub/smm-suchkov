@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -10,8 +11,13 @@ from datetime import datetime, timezone
 from . import memory_utils
 
 
-MEMORY_ID = "telegram_editorial_history_v1"
-MAX_RECORDS = 100
+MEMORY_ID = "telegram_editorial_history_v1"  # read-only rollback/migration source
+TABLE = "editorial_drafts"
+logger = logging.getLogger(__name__)
+
+
+class EditorialStorageError(RuntimeError):
+    pass
 
 ENTRANCES = ("direct_thesis", "concrete_moment", "observation", "short_question")
 ENDINGS = ("clear_conclusion", "precise_distinction", "quiet_observation", "open_question")
@@ -65,16 +71,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _memory() -> dict:
+def _legacy_memory() -> dict:
     mem = memory_utils.load(MEMORY_ID)
     mem.setdefault("editorial_records", [])
     return mem
 
 
 def recent_accepted(limit: int = 5) -> list[dict]:
-    records = _memory().get("editorial_records", [])
-    accepted = [r for r in records if r.get("status") == "accepted"]
-    return accepted[-limit:]
+    client = memory_utils._get_client()
+    if not client:
+        raise EditorialStorageError("Supabase client is unavailable")
+    try:
+        response = (
+            client.table(TABLE)
+            .select("draft_id,topic,planned_profile,actual_fingerprint,warnings,decided_at,created_at")
+            .eq("status", "accepted")
+            .order("decided_at", desc=True, nullsfirst=False)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        # Selector expects chronological order, oldest -> newest.
+        return [
+            {
+                "id": row.get("draft_id"),
+                "topic": row.get("topic", ""),
+                "planned": row.get("planned_profile") or {},
+                "actual": row.get("actual_fingerprint") or {},
+                "warnings": row.get("warnings") or [],
+                "status": "accepted",
+                "decided_at": row.get("decided_at"),
+            }
+            for row in reversed(response.data or [])
+        ]
+    except Exception as exc:
+        logger.warning("editorial_history_read_failed type=%s", type(exc).__name__)
+        raise EditorialStorageError("Editorial history is unavailable") from exc
 
 
 def _pick(options: tuple[str, ...], excluded: set[str], seed: str) -> str:
@@ -147,8 +179,12 @@ def fingerprint(text: str, planned: dict | None = None) -> dict:
     else:
         entrance = "observation"
 
-    final_paragraph = stripped.rsplit("\n\n", 1)[-1].strip()
-    if stripped.endswith("?") and CONTRAST_QUESTION_RE.search(final_paragraph):
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", stripped) if part.strip()]
+    final_tail = " ".join(paragraphs[-2:])[-1000:]
+    if len(paragraphs) < 2:
+        final_tail = " ".join(re.split(r"(?<=[.!?])\s+", stripped)[-3:])[-1000:]
+    normalized_tail = re.sub(r"\s+", " ", final_tail).lower()
+    if stripped.endswith("?") and CONTRAST_QUESTION_RE.search(normalized_tail):
         ending = "contrast_question"
     elif stripped.endswith("?"):
         ending = "open_question"
@@ -185,65 +221,152 @@ def fingerprint(text: str, planned: dict | None = None) -> dict:
     }
 
 
+def _warning(code: str, description: str, planned_value=None, actual_value=None) -> dict:
+    return {"code": code, "description": description,
+            "planned_value": planned_value, "actual_value": actual_value}
+
+
+def warning_text(item: dict | str) -> str:
+    return item if isinstance(item, str) else str(item.get("description", item.get("code", "")))
+
+
 def diagnose(text: str, actual: dict, history: list[dict] | None = None,
-             planned: dict | None = None) -> list[str]:
-    history = history if history is not None else recent_accepted(10)
-    warnings = []
+             planned: dict | None = None) -> list[dict]:
+    if history is None:
+        try:
+            history = recent_accepted(10)
+        except EditorialStorageError:
+            history = []
+    warnings: list[dict] = []
     found = [name for name, pattern in CLICHE_PATTERNS if pattern.search(text)]
     if found:
-        warnings.append("Обнаружена знакомая конструкция: " + ", ".join(found) + ".")
+        warnings.append(_warning("familiar_construction", "Обнаружена знакомая конструкция: " + ", ".join(found) + "."))
     if history:
         prev = history[-1].get("actual", {})
         if actual.get("entrance") == prev.get("entrance") and actual.get("ending") == prev.get("ending"):
-            warnings.append("Вход и финал совпали с предыдущим принятым постом.")
+            warnings.append(_warning("repeated_shape", "Вход и финал совпали с предыдущим принятым постом."))
     recent_questions = sum(bool(r.get("actual", {}).get("question_final")) for r in history[-9:])
     if actual.get("question_final") and recent_questions >= 5:
-        warnings.append("Финал-вопрос уже использован минимум в пяти из последних девяти постов.")
+        warnings.append(_warning("question_final_frequency", "Финал-вопрос уже использован минимум в пяти из последних девяти постов."))
     if actual.get("ending") == "contrast_question":
         recent_contrast = sum(
             r.get("actual", {}).get("ending") == "contrast_question" for r in history[-2:]
         )
         if recent_contrast:
-            warnings.append("Контрастный вопрос «не X, а Y» уже встречался среди двух предыдущих постов.")
-    if planned and planned.get("viewpoint") == "author_first_person" and actual.get("viewpoint") != "author_first_person":
-        warnings.append("Ось «точка зрения» не отражена: выбрано первое лицо автора, но авторского маркера в тексте нет.")
+            warnings.append(_warning("contrast_question_repeat", "Контрастный вопрос «не X, а Y» уже встречался среди двух предыдущих постов."))
+    if planned:
+        for axis in ("entrance", "viewpoint", "ending", "metaphor"):
+            planned_value = planned.get(axis)
+            actual_value = actual.get(axis)
+            matches = planned_value == actual_value
+            if axis == "ending" and planned_value == "open_question" and actual_value == "contrast_question":
+                matches = True
+            if not matches:
+                warnings.append(_warning(
+                    f"mismatch_{axis}",
+                    f"Ось «{axis}» не отражена в тексте: план={planned_value}, факт={actual_value}.",
+                    planned_value, actual_value,
+                ))
+        if actual.get("ending") == "contrast_question":
+            warnings.append(_warning("contrast_question", "Финал построен как контрастный вопрос «не X, а Y»."))
     if actual.get("metaphor") and any(r.get("actual", {}).get("metaphor") for r in history[-2:]):
-        warnings.append("Метафора снова появилась после недавнего поста с метафорой.")
+        warnings.append(_warning("metaphor_repeat", "Метафора снова появилась после недавнего поста с метафорой."))
     return warnings
 
 
+def _client():
+    client = memory_utils._get_client()
+    if not client:
+        raise EditorialStorageError("Supabase client is unavailable")
+    return client
+
+
+def get_draft(draft_id: str, chat_id: int | None = None) -> dict | None:
+    try:
+        query = _client().table(TABLE).select("*").eq("draft_id", draft_id)
+        if chat_id is not None:
+            query = query.eq("chat_id", chat_id)
+        rows = query.limit(1).execute().data or []
+        return rows[0] if rows else None
+    except EditorialStorageError:
+        raise
+    except Exception as exc:
+        raise EditorialStorageError("Draft lookup failed") from exc
+
+
 def record_draft(chat_id: int, topic: str, text: str, planned: dict, actual: dict,
-                 warnings: list[str], revision_of: str = "") -> str:
-    mem = _memory()
+                 warnings: list[dict], revision_context: dict | None = None) -> str:
+    client = _client()
     draft_id = uuid.uuid4().hex[:12]
-    mem["editorial_records"].append({
-        "id": draft_id,
-        "chat_id": chat_id,
-        "created_at": _now(),
-        "topic": topic,
-        "text": text,
-        "planned": planned,
-        "actual": actual,
-        "warnings": warnings,
-        "status": "generated",
-        "revision_of": revision_of,
-    })
-    mem["editorial_records"] = mem["editorial_records"][-MAX_RECORDS:]
-    memory_utils.save(MEMORY_ID, mem)
-    return draft_id
+    for attempt in range(2):
+        row = {"draft_id": draft_id, "chat_id": chat_id, "status": "generated",
+               "topic": topic, "text": text, "planned_profile": planned,
+               "actual_fingerprint": actual, "warnings": warnings,
+               "revision_context": revision_context, "revision_count": 0}
+        try:
+            client.table(TABLE).insert(row).execute()
+            return draft_id
+        except Exception as exc:
+            lowered = str(exc).lower()
+            if "duplicate" in lowered or "23505" in lowered:
+                # A retry after an ambiguous network response may find the row that
+                # was actually committed. Treat the matching owned row as success.
+                try:
+                    existing = get_draft(draft_id, chat_id)
+                    if existing:
+                        return draft_id
+                except EditorialStorageError:
+                    pass
+                draft_id = uuid.uuid4().hex[:12]
+                continue
+            if attempt == 0:
+                continue
+            raise EditorialStorageError("Draft insert failed") from exc
+    raise EditorialStorageError("Draft id collision")
 
 
-def set_status(draft_id: str, status: str) -> dict | None:
-    if status not in {"accepted", "rejected", "revised"}:
+def decide(draft_id: str, chat_id: int, status: str) -> tuple[str, dict | None]:
+    if status not in {"accepted", "rejected"}:
         raise ValueError("Unsupported editorial status")
-    mem = _memory()
-    result = None
-    for record in mem.get("editorial_records", []):
-        if record.get("id") == draft_id:
-            record["status"] = status
-            record["decided_at"] = _now()
-            result = record
-            break
-    if result:
-        memory_utils.save(MEMORY_ID, mem)
-    return result
+    try:
+        response = (_client().table(TABLE).update({
+            "status": status, "decided_at": _now(), "revision_context": None,
+        }).eq("draft_id", draft_id).eq("chat_id", chat_id).eq("status", "generated").execute())
+        if response.data:
+            return "updated", response.data[0]
+        current = get_draft(draft_id, chat_id)
+        return ("already_decided", current) if current else ("not_found", None)
+    except EditorialStorageError:
+        raise
+    except Exception as exc:
+        raise EditorialStorageError("Draft decision failed") from exc
+
+
+def revise_draft(old_draft_id: str, chat_id: int, text: str, planned: dict,
+                 actual: dict, warnings: list[dict], revision_context: dict | None) -> str:
+    client = _client()
+    for _ in range(2):
+        new_draft_id = uuid.uuid4().hex[:12]
+        try:
+            response = client.rpc("revise_editorial_draft", {
+                "p_old_draft_id": old_draft_id, "p_chat_id": chat_id,
+                "p_new_draft_id": new_draft_id, "p_new_text": text,
+                "p_planned_profile": planned, "p_actual_fingerprint": actual,
+                "p_warnings": warnings, "p_revision_context": revision_context,
+            }).execute()
+            data = response.data
+            if isinstance(data, dict) and data.get("draft_id"):
+                return data["draft_id"]
+            if isinstance(data, list) and data and data[0].get("draft_id"):
+                return data[0]["draft_id"]
+            return new_draft_id
+        except Exception as exc:
+            lowered = str(exc).lower()
+            if "insert_conflict" in lowered or "23505" in lowered or "duplicate" in lowered:
+                continue
+            raise EditorialStorageError("Atomic revision failed") from exc
+    raise EditorialStorageError("Draft id collision during revision")
+
+
+def legacy_accepted() -> list[dict]:
+    return [r for r in _legacy_memory().get("editorial_records", []) if r.get("status") == "accepted"]

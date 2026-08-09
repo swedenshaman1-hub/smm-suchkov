@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from agents import editorial_history
 
@@ -34,7 +34,7 @@ class EditorialHistoryTests(unittest.TestCase):
         text = "Иногда всё выглядит просто. И тогда главный вопрос не в том, кто прав, а в том, что важно?"
         actual = editorial_history.fingerprint(text)
         warnings = editorial_history.diagnose(text, actual, history)
-        joined = " ".join(warnings)
+        joined = " ".join(editorial_history.warning_text(item) for item in warnings)
         self.assertIn("main_question", joined)
         self.assertIn("Финал-вопрос", joined)
 
@@ -52,7 +52,7 @@ class EditorialHistoryTests(unittest.TestCase):
         text = "Иногда решение приходит не сразу. Со временем различие становится заметнее."
         actual = editorial_history.fingerprint(text, planned)
         warnings = editorial_history.diagnose(text, actual, history=[], planned=planned)
-        self.assertTrue(any("точка зрения" in warning for warning in warnings))
+        self.assertTrue(any(item.get("code") == "mismatch_viewpoint" for item in warnings))
 
     def test_author_first_person_marker_is_detected_outside_quotes(self):
         actual = editorial_history.fingerprint(
@@ -60,19 +60,35 @@ class EditorialHistoryTests(unittest.TestCase):
         )
         self.assertEqual(actual["viewpoint"], "author_first_person")
 
-    @patch("agents.editorial_history.memory_utils.save")
-    @patch("agents.editorial_history.memory_utils.load")
-    def test_draft_lifecycle_only_accepts_after_explicit_status(self, load, save):
-        memory = {"profile": {}, "editorial_records": []}
-        load.return_value = memory
+    @patch("agents.editorial_history.memory_utils._get_client")
+    def test_draft_lifecycle_only_accepts_after_explicit_status(self, get_client):
+        client = MagicMock()
+        get_client.return_value = client
+        client.table.return_value.insert.return_value.execute.return_value.data = [{}]
+        client.table.return_value.update.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value.data = [{"status": "accepted"}]
         draft_id = editorial_history.record_draft(
             1, "Тема", "Текст", {"entrance": "observation", "ending": "clear_conclusion", "metaphor": False},
             {"entrance": "observation", "ending": "clear_conclusion", "metaphor": False}, [],
         )
-        self.assertEqual(memory["editorial_records"][0]["status"], "generated")
-        editorial_history.set_status(draft_id, "accepted")
-        self.assertEqual(memory["editorial_records"][0]["status"], "accepted")
-        self.assertGreaterEqual(save.call_count, 2)
+        result, row = editorial_history.decide(draft_id, 1, "accepted")
+        self.assertEqual(result, "updated")
+        self.assertEqual(row["status"], "accepted")
+
+    def test_contrast_question_across_paragraph_boundary(self):
+        text = (
+            "И тогда главный вопрос не в том, хотите ли вы видеть друга сегодня.\n\n"
+            "А в том, что вы чувствуете к нему, когда встреча отменяется?"
+        )
+        actual = editorial_history.fingerprint(text)
+        self.assertEqual(actual["ending"], "contrast_question")
+
+    def test_all_planned_axes_produce_structured_mismatches(self):
+        planned = {"entrance": "direct_thesis", "ending": "clear_conclusion",
+                   "viewpoint": "author_first_person", "metaphor": True}
+        text = "Иногда решение становится понятнее со временем. Что теперь изменилось?"
+        actual = editorial_history.fingerprint(text, planned)
+        codes = {item["code"] for item in editorial_history.diagnose(text, actual, [], planned)}
+        self.assertTrue({"mismatch_entrance", "mismatch_ending", "mismatch_viewpoint", "mismatch_metaphor"}.issubset(codes))
 
 
 if __name__ == "__main__":

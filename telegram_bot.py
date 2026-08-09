@@ -124,7 +124,7 @@ SESSION_KEYS = [
     "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
     "last_pipeline_mode", "last_hook_brief", "last_blueprint", "last_voice_brief",
     "last_ethics_context", "last_editorial_profile", "last_history_brief",
-    "pending_editorial_draft_id", "post_revision_count",
+    "pending_editorial_draft_id", "revise_target_draft_id", "post_revision_count",
 ]
 
 # Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
@@ -449,7 +449,13 @@ async def _run_post_inner_v3(
                 "Редакция — сохраняю один текст и вношу только твою правку..."
             )
         else:
-            recent_history = editorial_history.recent_accepted(5)
+            history_unavailable = False
+            try:
+                recent_history = editorial_history.recent_accepted(5)
+            except editorial_history.EditorialStorageError:
+                logger.warning("editorial_history_unavailable chat_id=%s", msg.chat_id)
+                recent_history = []
+                history_unavailable = True
             planned_profile = editorial_history.select_profile(topic, recent_history)
             recent_history_brief = editorial_history.history_brief(recent_history)
             await msg.reply_text(
@@ -521,20 +527,37 @@ async def _run_post_inner_v3(
 
         actual_fingerprint = editorial_history.fingerprint(final_text, planned_profile)
         diagnostic_warnings = editorial_history.diagnose(
-            final_text, actual_fingerprint, planned=planned_profile
+            final_text, actual_fingerprint,
+            history=(recent_history if not reuse_previous else None),
+            planned=planned_profile,
         )
-        previous_draft_id = user_data.get("pending_editorial_draft_id", "") if reuse_previous else ""
-        if previous_draft_id:
-            editorial_history.set_status(previous_draft_id, "revised")
-        draft_id = editorial_history.record_draft(
-            msg.chat_id,
-            topic,
-            final_text,
-            planned_profile,
-            actual_fingerprint,
-            diagnostic_warnings,
-            revision_of=previous_draft_id,
-        )
+        revision_context = {
+            "editorial_context": editorial_context[:16000],
+            "history_brief": recent_history_brief,
+        }
+        previous_draft_id = user_data.get("revise_target_draft_id", "") if reuse_previous else ""
+        try:
+            if previous_draft_id:
+                draft_id = editorial_history.revise_draft(
+                    previous_draft_id, msg.chat_id, final_text, planned_profile,
+                    actual_fingerprint, diagnostic_warnings, revision_context,
+                )
+            else:
+                draft_id = editorial_history.record_draft(
+                    msg.chat_id, topic, final_text, planned_profile,
+                    actual_fingerprint, diagnostic_warnings, revision_context,
+                )
+        except editorial_history.EditorialStorageError:
+            logger.exception("editorial_draft_save_failed chat_id=%s", msg.chat_id)
+            await msg.reply_text(
+                "━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━"
+            )
+            await _send(msg, final_text)
+            await msg.reply_text(
+                "⚠️ Черновик не сохранён из-за ошибки хранилища. Кнопки недоступны. "
+                "Повтори запрос командой /post после восстановления."
+            )
+            return
         if feedback:
             mem = memory_utils.load("copywriter")
             memory_utils.add_feedback(mem, "Дмитрий", feedback, topic)
@@ -556,7 +579,8 @@ async def _run_post_inner_v3(
         user_data["waiting_feedback"] = False
         user_data["last_editorial_profile"] = planned_profile
         user_data["last_history_brief"] = recent_history_brief
-        user_data["pending_editorial_draft_id"] = draft_id
+        user_data["pending_editorial_draft_id"] = draft_id  # compatibility only; buttons do not read it
+        user_data["revise_target_draft_id"] = ""
         user_data["post_revision_count"] = (int(user_data.get("post_revision_count", 0)) + 1) if reuse_previous else 0
         _persist_session(msg.chat_id, user_data)
 
@@ -567,14 +591,18 @@ async def _run_post_inner_v3(
         if diagnostic_warnings:
             await msg.reply_text(
                 "Редакционная диагностика — предупреждения, не блокировка:\n\n• "
-                + "\n• ".join(diagnostic_warnings)
+                + "\n• ".join(editorial_history.warning_text(item) for item in diagnostic_warnings)
+            )
+        if not reuse_previous and history_unavailable:
+            await msg.reply_text(
+                "⚠️ Редакционная история была недоступна; форма поста выбрана без учёта прошлых публикаций."
             )
         await msg.reply_text(
             "Выбери, что сделать с текстом. В историю принятых постов он попадёт только после подтверждения.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Принять текст", callback_data="post_accept")],
-                [InlineKeyboardButton("✏️ Одна правка", callback_data="revise")],
-                [InlineKeyboardButton("🗑 Отклонить", callback_data="post_reject")],
+                [InlineKeyboardButton("✅ Принять текст", callback_data=f"post_accept:{draft_id}")],
+                *([] if reuse_previous else [[InlineKeyboardButton("✏️ Одна правка", callback_data=f"post_revise:{draft_id}")]]),
+                [InlineKeyboardButton("🗑 Отклонить", callback_data=f"post_reject:{draft_id}")],
             ]),
         )
     except Exception as exc:
@@ -2686,50 +2714,69 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _run_post(query.message, pending_text, context.user_data)
         return
 
-    if data == "post_accept":
-        draft_id = context.user_data.get("pending_editorial_draft_id", "")
-        if not draft_id:
-            await query.edit_message_text("Не найден текст для подтверждения. Создай новый пост.")
+    if data.startswith("post_accept:") or data.startswith("post_reject:"):
+        action, draft_id = data.split(":", 1)
+        target_status = "accepted" if action == "post_accept" else "rejected"
+        try:
+            result, _record = editorial_history.decide(draft_id, chat_id, target_status)
+        except editorial_history.EditorialStorageError:
+            logger.exception("editorial_callback_failed action=%s draft_id=%s chat_id=%s", action, draft_id, chat_id)
+            await query.edit_message_text("Хранилище временно недоступно. Нажми кнопку ещё раз позднее.")
             return
-        record = editorial_history.set_status(draft_id, "accepted")
+        if result == "not_found":
+            logger.warning("editorial_callback_unknown action=%s draft_id=%s chat_id=%s", action, draft_id, chat_id)
+            await query.edit_message_text(
+                "Этот черновик не найден или был создан в старой версии. Создай новый пост командой /post."
+            )
+            return
+        if result == "already_decided":
+            await query.edit_message_text("Решение по этому тексту уже сохранено.")
+            return
+        context.user_data["post_revision_count"] = 0
+        _persist_session(chat_id, context.user_data)
+        if target_status == "accepted":
+            await query.edit_message_text(
+                "✅ Текст принят и добавлен в редакционную историю. Следующий пост учтёт его форму и финал."
+            )
+        else:
+            await query.edit_message_text("🗑 Текст отклонён. В историю принятых публикаций он не попадёт.")
+        return
+
+    if data.startswith("post_revise:"):
+        draft_id = data.split(":", 1)[1]
+        try:
+            record = editorial_history.get_draft(draft_id, chat_id)
+        except editorial_history.EditorialStorageError:
+            await query.edit_message_text("Хранилище временно недоступно. Попробуй позднее.")
+            return
         if not record:
-            await query.edit_message_text("Не удалось найти этот черновик в редакционной истории.")
+            await query.edit_message_text(
+                "Этот черновик не найден или был создан в старой версии. Создай новый пост командой /post."
+            )
             return
-        memory_utils.register_published(
-            record.get("topic", ""),
-            angle=(record.get("actual", {}).get("entrance") or ""),
-            formats=["telegram_post"],
-        )
-        context.user_data["pending_editorial_draft_id"] = ""
-        context.user_data["post_revision_count"] = 0
+        if record.get("status") != "generated" or int(record.get("revision_count", 0)) != 0:
+            await query.edit_message_text("Правка для этого текста уже недоступна. Прими или отклони актуальную версию.")
+            return
+        revision_context = record.get("revision_context") or {}
+        context.user_data["last_post_topic"] = record.get("topic", "")
+        context.user_data["last_final_tg"] = record.get("text", "")
+        context.user_data["last_editorial_profile"] = record.get("planned_profile") or {}
+        context.user_data["last_analysis"] = revision_context.get("editorial_context", "")
+        context.user_data["last_history_brief"] = revision_context.get("history_brief", "")
+        context.user_data["revise_target_draft_id"] = draft_id
+        context.user_data["waiting_feedback"] = True
         _persist_session(chat_id, context.user_data)
         await query.edit_message_text(
-            "✅ Текст принят и добавлен в редакционную историю. Следующий пост учтёт его форму и финал."
+            f"Доработка поста по теме «{record.get('topic', '')}»\n\n"
+            "Отправь голосовое или напиши текстом, что именно изменить."
         )
         return
 
-    if data == "post_reject":
-        draft_id = context.user_data.get("pending_editorial_draft_id", "")
-        if draft_id:
-            editorial_history.set_status(draft_id, "rejected")
-        context.user_data["pending_editorial_draft_id"] = ""
-        context.user_data["post_revision_count"] = 0
-        _persist_session(chat_id, context.user_data)
-        await query.edit_message_text(
-            "🗑 Текст отклонён. В историю принятых публикаций он не попадёт."
-        )
-        return
-
+    # Compatibility for non-editorial legacy modes that still show a generic revise button.
     if data == "revise":
         topic = context.user_data.get("last_post_topic", "")
         if not topic:
             await query.edit_message_text("Нет сохранённого поста. Сначала создай пост.")
-            return
-        if int(context.user_data.get("post_revision_count", 0)) >= 1:
-            await query.edit_message_text(
-                "Лимит исчерпан: для одного поста разрешена одна содержательная правка. "
-                "Прими или отклони текущую версию."
-            )
             return
         context.user_data["waiting_feedback"] = True
         _persist_session(chat_id, context.user_data)
@@ -2737,6 +2784,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Доработка поста по теме «{topic}»\n\n"
             "Отправь голосовое или напиши текстом — что именно изменить."
         )
+        return
 
     elif data == "confirm_revise":
         topic = context.user_data.get("last_post_topic", "")
