@@ -43,7 +43,7 @@ from agents import (
     instagram_stats, instagram_analyst, instagram_messaging
 )
 from agents import memory_utils, notebook_live, team_registry
-from agents import telegram_team
+from agents import editorial_history, telegram_team
 
 CHANNEL_CHAT_ID = -1001800141714
 
@@ -123,7 +123,8 @@ SESSION_KEYS = [
     "last_post_topic", "waiting_feedback", "pending_feedback", "pending_ig_sections", "topics",
     "ambiguous_feedback_text", "last_analysis", "last_strategy", "last_final_tg", "last_final_ig_post",
     "last_pipeline_mode", "last_hook_brief", "last_blueprint", "last_voice_brief",
-    "last_ethics_context",
+    "last_ethics_context", "last_editorial_profile", "last_history_brief",
+    "pending_editorial_draft_id", "post_revision_count",
 ]
 
 # Слова-триггеры чисто тональной правки — по ним доработка идёт сразу к Даше, минуя
@@ -442,10 +443,15 @@ async def _run_post_inner_v3(
     try:
         if reuse_previous:
             editorial_context = user_data["last_analysis"]
+            planned_profile = user_data.get("last_editorial_profile") or editorial_history.select_profile(topic)
+            recent_history_brief = user_data.get("last_history_brief", "")
             await msg.reply_text(
                 "Редакция — сохраняю один текст и вношу только твою правку..."
             )
         else:
+            recent_history = editorial_history.recent_accepted(5)
+            planned_profile = editorial_history.select_profile(topic, recent_history)
+            recent_history_brief = editorial_history.history_brief(recent_history)
             await msg.reply_text(
                 f"Создаю Telegram-пост по теме:\n«{topic}»\n\n"
                 "Одна редакция, один автор, один готовый текст. "
@@ -483,6 +489,10 @@ async def _run_post_inner_v3(
                 + contexts.dramaturgy
                 + "\n\n=== ANN HANDLEY: ЖИВОЙ ЯЗЫК ===\n"
                 + contexts.human_text
+                + "\n\n=== РЕДАКЦИОННАЯ ФОРМА ЭТОГО ПОСТА ===\n"
+                + editorial_history.profile_instruction(planned_profile)
+                + "\n\n=== ЧЕГО НЕ ПОВТОРЯТЬ ИЗ НЕДАВНИХ ПРИНЯТЫХ ПОСТОВ ===\n"
+                + recent_history_brief
             )
             await msg.reply_text(
                 "NotebookLM — четыре заключения готовы. Передаю их одному автору..."
@@ -509,10 +519,19 @@ async def _run_post_inner_v3(
             )
             return
 
-        memory_utils.register_published(
+        actual_fingerprint = editorial_history.fingerprint(final_text, planned_profile)
+        diagnostic_warnings = editorial_history.diagnose(final_text, actual_fingerprint)
+        previous_draft_id = user_data.get("pending_editorial_draft_id", "") if reuse_previous else ""
+        if previous_draft_id:
+            editorial_history.set_status(previous_draft_id, "revised")
+        draft_id = editorial_history.record_draft(
+            msg.chat_id,
             topic,
-            angle=editorial_context[:300],
-            formats=["telegram_post"],
+            final_text,
+            planned_profile,
+            actual_fingerprint,
+            diagnostic_warnings,
+            revision_of=previous_draft_id,
         )
         if feedback:
             mem = memory_utils.load("copywriter")
@@ -533,17 +552,28 @@ async def _run_post_inner_v3(
         user_data["last_pipeline_mode"] = "post"
         user_data["pending_ig_sections"] = {}
         user_data["waiting_feedback"] = False
+        user_data["last_editorial_profile"] = planned_profile
+        user_data["last_history_brief"] = recent_history_brief
+        user_data["pending_editorial_draft_id"] = draft_id
+        user_data["post_revision_count"] = (int(user_data.get("post_revision_count", 0)) + 1) if reuse_previous else 0
         _persist_session(msg.chat_id, user_data)
 
         await msg.reply_text(
             "━━━━━━━━━━━━━━━━━━━\nTelegram-пост готов\n━━━━━━━━━━━━━━━━━━━"
         )
         await _send(msg, final_text)
+        if diagnostic_warnings:
+            await msg.reply_text(
+                "Редакционная диагностика — предупреждения, не блокировка:\n\n• "
+                + "\n• ".join(diagnostic_warnings)
+            )
         await msg.reply_text(
-            "Если нужна правка — нажми кнопку и напиши, что изменить.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("Доработать пост", callback_data="revise")
-            ]]),
+            "Выбери, что сделать с текстом. В историю принятых постов он попадёт только после подтверждения.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Принять текст", callback_data="post_accept")],
+                [InlineKeyboardButton("✏️ Одна правка", callback_data="revise")],
+                [InlineKeyboardButton("🗑 Отклонить", callback_data="post_reject")],
+            ]),
         )
     except Exception as exc:
         logger.exception("Ошибка в one-pass editorial pipeline")
@@ -2654,10 +2684,50 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _run_post(query.message, pending_text, context.user_data)
         return
 
+    if data == "post_accept":
+        draft_id = context.user_data.get("pending_editorial_draft_id", "")
+        if not draft_id:
+            await query.edit_message_text("Не найден текст для подтверждения. Создай новый пост.")
+            return
+        record = editorial_history.set_status(draft_id, "accepted")
+        if not record:
+            await query.edit_message_text("Не удалось найти этот черновик в редакционной истории.")
+            return
+        memory_utils.register_published(
+            record.get("topic", ""),
+            angle=(record.get("actual", {}).get("entrance") or ""),
+            formats=["telegram_post"],
+        )
+        context.user_data["pending_editorial_draft_id"] = ""
+        context.user_data["post_revision_count"] = 0
+        _persist_session(chat_id, context.user_data)
+        await query.edit_message_text(
+            "✅ Текст принят и добавлен в редакционную историю. Следующий пост учтёт его форму и финал."
+        )
+        return
+
+    if data == "post_reject":
+        draft_id = context.user_data.get("pending_editorial_draft_id", "")
+        if draft_id:
+            editorial_history.set_status(draft_id, "rejected")
+        context.user_data["pending_editorial_draft_id"] = ""
+        context.user_data["post_revision_count"] = 0
+        _persist_session(chat_id, context.user_data)
+        await query.edit_message_text(
+            "🗑 Текст отклонён. В историю принятых публикаций он не попадёт."
+        )
+        return
+
     if data == "revise":
         topic = context.user_data.get("last_post_topic", "")
         if not topic:
             await query.edit_message_text("Нет сохранённого поста. Сначала создай пост.")
+            return
+        if int(context.user_data.get("post_revision_count", 0)) >= 1:
+            await query.edit_message_text(
+                "Лимит исчерпан: для одного поста разрешена одна содержательная правка. "
+                "Прими или отклони текущую версию."
+            )
             return
         context.user_data["waiting_feedback"] = True
         _persist_session(chat_id, context.user_data)
