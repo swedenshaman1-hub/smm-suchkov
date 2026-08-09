@@ -15,6 +15,7 @@ MAX_RECORDS = 100
 
 ENTRANCES = ("direct_thesis", "concrete_moment", "observation", "short_question")
 ENDINGS = ("clear_conclusion", "precise_distinction", "quiet_observation", "open_question")
+VIEWPOINTS = ("author_first_person", "reader_second_person", "shared_we", "neutral")
 
 LABELS = {
     "direct_thesis": "прямой авторский тезис",
@@ -25,6 +26,11 @@ LABELS = {
     "precise_distinction": "точное различение двух состояний",
     "quiet_observation": "тихое наблюдение без морали",
     "open_question": "один открытый вопрос",
+    "contrast_question": "контрастный вопрос «не X, а Y»",
+    "author_first_person": "первое лицо автора",
+    "reader_second_person": "обращение к читателю",
+    "shared_we": "совместное «мы»",
+    "neutral": "нейтральное наблюдение",
 }
 
 CLICHE_PATTERNS = (
@@ -39,6 +45,20 @@ METAPHOR_RE = re.compile(
     r"спасательн\w+\s+круг|брон[яеи]|крепост\w*|гонк\w*|дистанци\w*|вершин\w*)\b",
     re.I,
 )
+
+CONTRAST_QUESTION_RE = re.compile(
+    r"(?:\bне\b[\s\S]{1,220}?\bа\b|\bне\s+потому\s+что\b[\s\S]{1,220}?\bа\s+потому\s+что\b|"
+    r"\bэто\s+не\b[\s\S]{1,180}?(?:\bэто\b|\bскорее\b))",
+    re.I,
+)
+
+AUTHOR_FIRST_PERSON_RE = re.compile(
+    r"\b(?:я\s+бы|мне\s+кажется|для\s+меня|я\s+не\s+стал(?:а)?\s+бы|я\s+считаю|"
+    r"я\s+думаю|я\s+здесь\s+вижу|я\s+предлагаю)\b",
+    re.I,
+)
+READER_SECOND_PERSON_RE = re.compile(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|вы|вас|вам|ваш|ваша)\b", re.I)
+SHARED_WE_RE = re.compile(r"\b(?:мы|нас|нам|нами|наш|наша|наше)\b", re.I)
 
 
 def _now() -> str:
@@ -68,11 +88,15 @@ def select_profile(topic: str, history: list[dict] | None = None) -> dict:
     last_two = history[-2:]
     used_entrances = {r.get("actual", {}).get("entrance") or r.get("planned", {}).get("entrance") for r in last_two}
     used_endings = {r.get("actual", {}).get("ending") or r.get("planned", {}).get("ending") for r in last_two}
+    used_viewpoints = {r.get("actual", {}).get("viewpoint") or r.get("planned", {}).get("viewpoint") for r in last_two}
+    if "contrast_question" in used_endings:
+        used_endings.add("open_question")
     entrance = _pick(ENTRANCES, used_entrances, topic + ":entrance:" + str(len(history)))
     ending = _pick(ENDINGS, used_endings, topic + ":ending:" + str(len(history)))
+    viewpoint = _pick(VIEWPOINTS, used_viewpoints, topic + ":viewpoint:" + str(len(history)))
     recent_metaphors = sum(bool(r.get("actual", {}).get("metaphor")) for r in history[-3:])
     metaphor = recent_metaphors == 0 and int(hashlib.sha256(topic.encode("utf-8")).hexdigest()[-1], 16) % 4 == 0
-    return {"entrance": entrance, "ending": ending, "metaphor": metaphor}
+    return {"entrance": entrance, "ending": ending, "viewpoint": viewpoint, "metaphor": metaphor}
 
 
 def profile_instruction(profile: dict) -> str:
@@ -83,8 +107,14 @@ def profile_instruction(profile: dict) -> str:
     )
     return (
         f"Вход: {LABELS[profile['entrance']]}.\n"
+        f"Точка зрения: {LABELS[profile.get('viewpoint', 'neutral')]}.\n"
         f"Финал: {LABELS[profile['ending']]}.\n"
         f"{metaphor_rule}\n"
+        + (
+            "Вырази авторскую позицию хотя бы одной честной фразой вроде «Я бы здесь различал…» или «Мне кажется важным…». Не придумывай опыт и случаи клиентов.\n"
+            if profile.get("viewpoint") == "author_first_person" else ""
+        )
+        +
         "Это направление, а не жёсткий шаблон. Не называй эти параметры в посте."
     )
 
@@ -98,6 +128,7 @@ def history_brief(history: list[dict] | None = None) -> str:
         actual = record.get("actual", {})
         lines.append(
             f"• вход={LABELS.get(actual.get('entrance'), actual.get('entrance', 'не определён'))}; "
+            f"точка зрения={LABELS.get(actual.get('viewpoint'), actual.get('viewpoint', 'не определена'))}; "
             f"финал={LABELS.get(actual.get('ending'), actual.get('ending', 'не определён'))}; "
             f"метафора={'да' if actual.get('metaphor') else 'нет'}"
         )
@@ -116,7 +147,10 @@ def fingerprint(text: str, planned: dict | None = None) -> dict:
     else:
         entrance = "observation"
 
-    if stripped.endswith("?"):
+    final_paragraph = stripped.rsplit("\n\n", 1)[-1].strip()
+    if stripped.endswith("?") and CONTRAST_QUESTION_RE.search(final_paragraph):
+        ending = "contrast_question"
+    elif stripped.endswith("?"):
         ending = "open_question"
     elif re.search(r"\b(?:различие|отличие|границ[аеу]|одно\s+дело)\b", stripped[-420:], re.I):
         ending = "precise_distinction"
@@ -125,21 +159,34 @@ def fingerprint(text: str, planned: dict | None = None) -> dict:
     else:
         ending = "clear_conclusion"
 
+    text_without_quotes = re.sub(r"[«\"“][^»\"”]{0,300}[»\"”]", " ", stripped)
+    if AUTHOR_FIRST_PERSON_RE.search(text_without_quotes):
+        viewpoint = "author_first_person"
+    elif READER_SECOND_PERSON_RE.search(text_without_quotes):
+        viewpoint = "reader_second_person"
+    elif SHARED_WE_RE.search(text_without_quotes):
+        viewpoint = "shared_we"
+    else:
+        viewpoint = "neutral"
+
     return {
         "entrance": entrance,
         "ending": ending,
+        "viewpoint": viewpoint,
         "metaphor": bool(METAPHOR_RE.search(stripped)),
         "question_final": stripped.endswith("?"),
         "length": len(stripped),
         "planned_match": {
             "entrance": not planned or entrance == planned.get("entrance"),
             "ending": not planned or ending == planned.get("ending"),
+            "viewpoint": not planned or viewpoint == planned.get("viewpoint"),
             "metaphor": not planned or bool(planned.get("metaphor")) == bool(METAPHOR_RE.search(stripped)),
         },
     }
 
 
-def diagnose(text: str, actual: dict, history: list[dict] | None = None) -> list[str]:
+def diagnose(text: str, actual: dict, history: list[dict] | None = None,
+             planned: dict | None = None) -> list[str]:
     history = history if history is not None else recent_accepted(10)
     warnings = []
     found = [name for name, pattern in CLICHE_PATTERNS if pattern.search(text)]
@@ -152,6 +199,14 @@ def diagnose(text: str, actual: dict, history: list[dict] | None = None) -> list
     recent_questions = sum(bool(r.get("actual", {}).get("question_final")) for r in history[-9:])
     if actual.get("question_final") and recent_questions >= 5:
         warnings.append("Финал-вопрос уже использован минимум в пяти из последних девяти постов.")
+    if actual.get("ending") == "contrast_question":
+        recent_contrast = sum(
+            r.get("actual", {}).get("ending") == "contrast_question" for r in history[-2:]
+        )
+        if recent_contrast:
+            warnings.append("Контрастный вопрос «не X, а Y» уже встречался среди двух предыдущих постов.")
+    if planned and planned.get("viewpoint") == "author_first_person" and actual.get("viewpoint") != "author_first_person":
+        warnings.append("Ось «точка зрения» не отражена: выбрано первое лицо автора, но авторского маркера в тексте нет.")
     if actual.get("metaphor") and any(r.get("actual", {}).get("metaphor") for r in history[-2:]):
         warnings.append("Метафора снова появилась после недавнего поста с метафорой.")
     return warnings
@@ -192,4 +247,3 @@ def set_status(draft_id: str, status: str) -> dict | None:
     if result:
         memory_utils.save(MEMORY_ID, mem)
     return result
-

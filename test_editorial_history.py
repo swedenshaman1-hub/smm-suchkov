@@ -7,12 +7,13 @@ from agents import editorial_history
 class EditorialHistoryTests(unittest.TestCase):
     def test_selector_avoids_last_two_entrances_and_endings(self):
         history = [
-            {"actual": {"entrance": "direct_thesis", "ending": "open_question", "metaphor": False}},
-            {"actual": {"entrance": "concrete_moment", "ending": "clear_conclusion", "metaphor": True}},
+            {"actual": {"entrance": "direct_thesis", "ending": "open_question", "viewpoint": "neutral", "metaphor": False}},
+            {"actual": {"entrance": "concrete_moment", "ending": "clear_conclusion", "viewpoint": "shared_we", "metaphor": True}},
         ]
         profile = editorial_history.select_profile("Тестовая тема", history)
         self.assertNotIn(profile["entrance"], {"direct_thesis", "concrete_moment"})
         self.assertNotIn(profile["ending"], {"open_question", "clear_conclusion"})
+        self.assertNotIn(profile["viewpoint"], {"neutral", "shared_we"})
 
     def test_profile_suppresses_metaphor_after_recent_metaphor(self):
         history = [{"actual": {"entrance": "observation", "ending": "quiet_observation", "metaphor": True}}]
@@ -36,6 +37,28 @@ class EditorialHistoryTests(unittest.TestCase):
         joined = " ".join(warnings)
         self.assertIn("main_question", joined)
         self.assertIn("Финал-вопрос", joined)
+
+    def test_contrast_question_is_stored_as_specific_ending(self):
+        text = "Разговор закончился.\n\nЧто если эта тишина не оценка встречи, а чувство момента, когда снова остался один?"
+        actual = editorial_history.fingerprint(text)
+        self.assertEqual(actual["ending"], "contrast_question")
+        self.assertTrue(actual["question_final"])
+
+    def test_first_person_axis_mismatch_creates_warning(self):
+        planned = {
+            "entrance": "observation", "ending": "clear_conclusion",
+            "viewpoint": "author_first_person", "metaphor": False,
+        }
+        text = "Иногда решение приходит не сразу. Со временем различие становится заметнее."
+        actual = editorial_history.fingerprint(text, planned)
+        warnings = editorial_history.diagnose(text, actual, history=[], planned=planned)
+        self.assertTrue(any("точка зрения" in warning for warning in warnings))
+
+    def test_author_first_person_marker_is_detected_outside_quotes(self):
+        actual = editorial_history.fingerprint(
+            "Я бы здесь различал усталость и нежелание продолжать разговор."
+        )
+        self.assertEqual(actual["viewpoint"], "author_first_person")
 
     @patch("agents.editorial_history.memory_utils.save")
     @patch("agents.editorial_history.memory_utils.load")

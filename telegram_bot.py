@@ -520,7 +520,9 @@ async def _run_post_inner_v3(
             return
 
         actual_fingerprint = editorial_history.fingerprint(final_text, planned_profile)
-        diagnostic_warnings = editorial_history.diagnose(final_text, actual_fingerprint)
+        diagnostic_warnings = editorial_history.diagnose(
+            final_text, actual_fingerprint, planned=planned_profile
+        )
         previous_draft_id = user_data.get("pending_editorial_draft_id", "") if reuse_previous else ""
         if previous_draft_id:
             editorial_history.set_status(previous_draft_id, "revised")
