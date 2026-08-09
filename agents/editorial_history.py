@@ -31,12 +31,14 @@ LABELS = {
     "clear_conclusion": "завершённая авторская мысль",
     "precise_distinction": "точное различение двух состояний",
     "quiet_observation": "тихое наблюдение без морали",
+    "statement_final": "утвердительный финал без надёжной смысловой классификации",
     "open_question": "один открытый вопрос",
     "contrast_question": "контрастный вопрос «не X, а Y»",
     "author_first_person": "первое лицо автора",
     "reader_second_person": "обращение к читателю",
     "shared_we": "совместное «мы»",
     "neutral": "нейтральное наблюдение",
+    "mixed": "смешанная точка зрения",
 }
 
 CLICHE_PATTERNS = (
@@ -63,8 +65,15 @@ AUTHOR_FIRST_PERSON_RE = re.compile(
     r"я\s+думаю|я\s+здесь\s+вижу|я\s+предлагаю)\b",
     re.I,
 )
-READER_SECOND_PERSON_RE = re.compile(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|вы|вас|вам|ваш|ваша)\b", re.I)
-SHARED_WE_RE = re.compile(r"\b(?:мы|нас|нам|нами|наш|наша|наше)\b", re.I)
+READER_SECOND_PERSON_RE = re.compile(r"\b(?:ты|тебя|тебе|тобой|тво[йеяию]|тво(?:его|ей|ему|ем|ём|им|их|ими|ю)|вы|вас|вам|вами|ваш\w*)\b", re.I)
+SHARED_WE_RE = re.compile(r"\b(?:мы|нас|нам|нами|наш\w*)\b", re.I)
+
+SEMANTIC_STOPWORDS = {
+    "который", "которая", "которые", "потому", "просто", "может", "иногда",
+    "человек", "людей", "отношения", "сейчас", "только", "своей", "своего",
+    "самого", "самому", "этого", "такой", "между", "всегда", "когда", "чтобы",
+    "почему", "после", "перед", "больше", "меньше", "внутри", "словно", "будто",
+}
 
 
 def _now() -> str:
@@ -84,7 +93,7 @@ def recent_accepted(limit: int = 5) -> list[dict]:
     try:
         response = (
             client.table(TABLE)
-            .select("draft_id,topic,planned_profile,actual_fingerprint,warnings,decided_at,created_at")
+            .select("draft_id,topic,text,planned_profile,actual_fingerprint,warnings,decided_at,created_at")
             .eq("status", "accepted")
             .order("decided_at", desc=True, nullsfirst=False)
             .order("created_at", desc=True)
@@ -96,6 +105,7 @@ def recent_accepted(limit: int = 5) -> list[dict]:
             {
                 "id": row.get("draft_id"),
                 "topic": row.get("topic", ""),
+                "text": row.get("text", ""),
                 "planned": row.get("planned_profile") or {},
                 "actual": row.get("actual_fingerprint") or {},
                 "warnings": row.get("warnings") or [],
@@ -118,9 +128,11 @@ def _pick(options: tuple[str, ...], excluded: set[str], seed: str) -> str:
 def select_profile(topic: str, history: list[dict] | None = None) -> dict:
     history = history if history is not None else recent_accepted(5)
     last_two = history[-2:]
-    used_entrances = {r.get("actual", {}).get("entrance") or r.get("planned", {}).get("entrance") for r in last_two}
-    used_endings = {r.get("actual", {}).get("ending") or r.get("planned", {}).get("ending") for r in last_two}
-    used_viewpoints = {r.get("actual", {}).get("viewpoint") or r.get("planned", {}).get("viewpoint") for r in last_two}
+    # Rotate the intended form. Falling back to actual keeps old records compatible,
+    # while avoiding a planned+actual union that can exhaust the whole enum.
+    used_entrances = {r.get("planned", {}).get("entrance") or r.get("actual", {}).get("entrance") for r in last_two}
+    used_endings = {r.get("planned", {}).get("ending") or r.get("actual", {}).get("ending") for r in last_two}
+    used_viewpoints = {r.get("planned", {}).get("viewpoint") or r.get("actual", {}).get("viewpoint") for r in last_two}
     if "contrast_question" in used_endings:
         used_endings.add("open_question")
     entrance = _pick(ENTRANCES, used_entrances, topic + ":entrance:" + str(len(history)))
@@ -167,17 +179,101 @@ def history_brief(history: list[dict] | None = None) -> str:
     return "\n".join(lines)
 
 
+def _semantic_key(word: str) -> str:
+    """A conservative Russian content-word key; enough for inflectional variants."""
+    word = word.lower().replace("ё", "е")
+    aliases = {
+        "идеаль": "идеал", "образ": "идеал", "эталон": "идеал",
+        "достиг": "пройден", "дистанц": "пройден", "путь": "пройден", "пройден": "пройден",
+        "пустот": "пустота", "нехват": "нехватка", "дефиц": "нехватка",
+        "опор": "опора", "поддерж": "опора", "сравн": "сравнение",
+        "взгляд": "сравнение", "посмотр": "сравнение",
+    }
+    for prefix, canonical in aliases.items():
+        if word.startswith(prefix):
+            return canonical
+    suffixes = (
+        "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими", "его",
+        "ая", "яя", "ое", "ее", "ые", "ие", "ой", "ей", "ую", "юю",
+        "ам", "ям", "ах", "ях", "ом", "ем", "ов", "ев", "ы", "и", "а", "я", "у", "ю",
+    )
+    for suffix in suffixes:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 5:
+            word = word[:-len(suffix)]
+            break
+    return word
+
+
+def semantic_terms(text: str, limit: int = 14) -> list[str]:
+    """Return stable content words for a cheap, deterministic meaning preflight."""
+    counts: dict[str, int] = {}
+    for word in re.findall(r"[а-яё]{5,}", (text or "").lower()):
+        if word in SEMANTIC_STOPWORDS:
+            continue
+        key = _semantic_key(word)
+        counts[key] = counts.get(key, 0) + 1
+    return [word for word, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+
+
+def extract_labeled_value(text: str, labels: tuple[str, ...]) -> str:
+    for label in labels:
+        match = re.search(
+            rf"(?im)^\s*{re.escape(label)}\s*:\s*(.+?)(?=\n\s*[А-ЯЁ0-9][А-ЯЁ0-9 –—-]{{2,}}:|\Z)",
+            text or "",
+            re.S,
+        )
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip()[:600]
+    return ""
+
+
+def semantic_preflight(candidate_thesis: str, history: list[dict]) -> dict:
+    """Detect recent semantic overlap without another model call or rewrite loop."""
+    candidate = set(semantic_terms(candidate_thesis))
+    matches = []
+    for record in history[-7:]:
+        previous_terms = set(record.get("actual", {}).get("semantic_terms") or semantic_terms(record.get("text", "")))
+        if not candidate or not previous_terms:
+            continue
+        shared = sorted(candidate & previous_terms)
+        score = len(shared) / max(1, min(len(candidate), len(previous_terms)))
+        if len(shared) >= 3 and score >= 0.28:
+            matches.append({
+                "topic": record.get("topic", ""),
+                "shared_terms": shared[:8],
+                "score": round(score, 2),
+            })
+    return {
+        "candidate_thesis": candidate_thesis,
+        "semantic_terms": sorted(candidate),
+        "duplicates": matches,
+    }
+
+
+def semantic_preflight_instruction(result: dict) -> str:
+    thesis = result.get("candidate_thesis") or "не извлечён"
+    duplicates = result.get("duplicates") or []
+    lines = [f"Тезис до написания: {thesis}"]
+    if not duplicates:
+        lines.append("Среди последних принятых постов близкий смысловой механизм не найден.")
+    else:
+        lines.append("Обнаружен близкий недавний механизм. Не повторяй его; раскрой тему через другое наблюдаемое различение:")
+        for item in duplicates:
+            lines.append(f"• {item['topic']} (общие смысловые слова: {', '.join(item['shared_terms'])})")
+    return "\n".join(lines)
+
+
 def fingerprint(text: str, planned: dict | None = None) -> dict:
     stripped = text.strip()
     first_paragraph = stripped.split("\n\n", 1)[0].strip()
     if first_paragraph.endswith("?") and len(first_paragraph) <= 240:
         entrance = "short_question"
-    elif re.match(r"^(?:я\s+бы|для\s+меня|мне\s+кажется|важно\s+различать)", first_paragraph, re.I):
-        entrance = "direct_thesis"
-    elif re.search(r"\b(?:телефон|сообщение|кухн|вечер|утро|комнат|экран|встреч|разговор)\w*\b", first_paragraph, re.I):
+    elif re.search(r"\b(?:телефон|сообщение|кухн|вечер|утро|комнат|экран|встреч|разговор|двер|стол|такси|метро)\w*\b", first_paragraph, re.I) and re.search(r"\b(?:лежит|сидит|стоит|пишет|смотрит|идёт|едет|возвращается|звучит|спрашивает)\w*\b", first_paragraph, re.I):
         entrance = "concrete_moment"
-    else:
+    elif re.match(r"^(?:иногда\s+(?:замечаешь|видно|бывает)|бывает\s+момент|можно\s+заметить)", first_paragraph, re.I):
         entrance = "observation"
+    else:
+        entrance = "direct_thesis"
 
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", stripped) if part.strip()]
     final_tail = " ".join(paragraphs[-2:])[-1000:]
@@ -188,35 +284,61 @@ def fingerprint(text: str, planned: dict | None = None) -> dict:
         ending = "contrast_question"
     elif stripped.endswith("?"):
         ending = "open_question"
-    elif re.search(r"\b(?:различие|отличие|границ[аеу]|одно\s+дело)\b", stripped[-420:], re.I):
+    elif re.search(r"\b(?:различие|отличие|границ[аеу]|одно\s+дело|один\b[\s\S]{0,180}\bдругой|одно\b[\s\S]{0,180}\bдругое|два\s+(?:способ|состояни|вопрос|навык))\b", stripped[-520:], re.I):
         ending = "precise_distinction"
     elif re.search(r"\b(?:попробуй|спроси|заметь|обрати\s+внимание)\b", stripped[-300:], re.I):
         ending = "gentle_action"
-    else:
+    elif re.search(r"\b(?:поэтому|значит|итог|вот\s+почему|вывод|начинается|означает|показывает|важно|нужно)\b", stripped[-300:], re.I):
         ending = "clear_conclusion"
+    elif re.search(r"\b(?:может|возможно|иногда|похоже|кажется|тихо|порой)\b", stripped[-300:], re.I):
+        ending = "quiet_observation"
+    else:
+        ending = "statement_final"
 
     text_without_quotes = re.sub(r"[«\"“][^»\"”]{0,300}[»\"”]", " ", stripped)
-    if AUTHOR_FIRST_PERSON_RE.search(text_without_quotes):
-        viewpoint = "author_first_person"
-    elif READER_SECOND_PERSON_RE.search(text_without_quotes):
-        viewpoint = "reader_second_person"
-    elif SHARED_WE_RE.search(text_without_quotes):
-        viewpoint = "shared_we"
-    else:
+    # Do not treat a listed inner question ("чего я хочу?") as the author's voice.
+    text_without_quotes = re.sub(r":\s*[^.!?]{0,240}\?", " ", text_without_quotes)
+    viewpoint_counts = {
+        "author_first_person": len(AUTHOR_FIRST_PERSON_RE.findall(text_without_quotes)),
+        "reader_second_person": len(READER_SECOND_PERSON_RE.findall(text_without_quotes)),
+        "shared_we": len(SHARED_WE_RE.findall(text_without_quotes)),
+    }
+    total_viewpoint = sum(viewpoint_counts.values())
+    dominant, dominant_count = max(viewpoint_counts.items(), key=lambda item: item[1])
+    if not total_viewpoint:
         viewpoint = "neutral"
+    elif dominant_count / total_viewpoint >= 0.60:
+        viewpoint = dominant
+    else:
+        viewpoint = "mixed"
+
+    metaphor_markers = {match.lower() for match in METAPHOR_RE.findall(stripped)}
+    metaphor_level = "extended" if len(metaphor_markers) >= 2 else ("incidental" if metaphor_markers else "none")
+
+    viewpoint_match = not planned or viewpoint == planned.get("viewpoint")
+    if planned and viewpoint == "mixed" and total_viewpoint:
+        viewpoint_match = viewpoint_counts.get(planned.get("viewpoint"), 0) / total_viewpoint >= 0.50
+    ending_match = not planned or ending == planned.get("ending")
+    if planned and ending == "contrast_question" and planned.get("ending") == "open_question":
+        ending_match = True
+    if planned and ending == "statement_final" and planned.get("ending") in {"clear_conclusion", "quiet_observation"}:
+        ending_match = True
 
     return {
         "entrance": entrance,
         "ending": ending,
         "viewpoint": viewpoint,
-        "metaphor": bool(METAPHOR_RE.search(stripped)),
+        "metaphor": metaphor_level == "extended",
+        "metaphor_level": metaphor_level,
+        "viewpoint_counts": viewpoint_counts,
+        "semantic_terms": semantic_terms(stripped),
         "question_final": stripped.endswith("?"),
         "length": len(stripped),
         "planned_match": {
             "entrance": not planned or entrance == planned.get("entrance"),
-            "ending": not planned or ending == planned.get("ending"),
-            "viewpoint": not planned or viewpoint == planned.get("viewpoint"),
-            "metaphor": not planned or bool(planned.get("metaphor")) == bool(METAPHOR_RE.search(stripped)),
+            "ending": ending_match,
+            "viewpoint": viewpoint_match,
+            "metaphor": not planned or bool(planned.get("metaphor")) == (metaphor_level == "extended"),
         },
     }
 
@@ -238,7 +360,10 @@ def diagnose(text: str, actual: dict, history: list[dict] | None = None,
         except EditorialStorageError:
             history = []
     warnings: list[dict] = []
-    found = [name for name, pattern in CLICHE_PATTERNS if pattern.search(text)]
+    found = [name for name, pattern in CLICHE_PATTERNS if name != "and_maybe" and pattern.search(text)]
+    alternative_markers = re.findall(r"\b(?:а\s+может(?:\s+быть)?|возможно|может,?\s+дело)\b", text, re.I)
+    if len(alternative_markers) >= 2 and re.search(r"\bа\s+может(?:\s+быть)?\b", text, re.I):
+        found.append("and_maybe")
     if found:
         warnings.append(_warning("familiar_construction", "Обнаружена знакомая конструкция: " + ", ".join(found) + "."))
     if history:
@@ -261,6 +386,12 @@ def diagnose(text: str, actual: dict, history: list[dict] | None = None,
             matches = planned_value == actual_value
             if axis == "ending" and planned_value == "open_question" and actual_value == "contrast_question":
                 matches = True
+            if axis == "ending" and actual_value == "statement_final" and planned_value in {"clear_conclusion", "quiet_observation"}:
+                matches = True
+            if axis == "viewpoint" and actual_value == "mixed":
+                scores = actual.get("viewpoint_counts") or {}
+                total = sum(scores.values())
+                matches = bool(total and scores.get(planned_value, 0) / total >= 0.50)
             if not matches:
                 warnings.append(_warning(
                     f"mismatch_{axis}",

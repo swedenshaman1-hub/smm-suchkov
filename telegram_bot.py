@@ -486,6 +486,20 @@ async def _run_post_inner_v3(
                     f"не ответили. Причина: {exc}"
                 )
                 return
+            candidate_thesis = (
+                editorial_history.extract_labeled_value(
+                    contexts.message_strategy, ("ЦЕНТРАЛЬНЫЙ ТЕЗИС",)
+                )
+                or editorial_history.extract_labeled_value(
+                    contexts.author_voice, ("ЭКСПЕРТНАЯ ОПОРА",)
+                )
+                or topic
+            )
+            semantic_check = editorial_history.semantic_preflight(
+                candidate_thesis, recent_history
+            )
+            planned_profile["semantic_thesis"] = candidate_thesis
+            planned_profile["semantic_terms"] = semantic_check.get("semantic_terms", [])
             editorial_context = (
                 "=== ДМИТРИЙ: ЭКСПЕРТИЗА И ГОЛОС ===\n"
                 + contexts.author_voice
@@ -497,6 +511,8 @@ async def _run_post_inner_v3(
                 + contexts.human_text
                 + "\n\n=== РЕДАКЦИОННАЯ ФОРМА ЭТОГО ПОСТА ===\n"
                 + editorial_history.profile_instruction(planned_profile)
+                + "\n\n=== СМЫСЛОВОЙ PREFLIGHT ДО НАПИСАНИЯ ===\n"
+                + editorial_history.semantic_preflight_instruction(semantic_check)
                 + "\n\n=== ЧЕГО НЕ ПОВТОРЯТЬ ИЗ НЕДАВНИХ ПРИНЯТЫХ ПОСТОВ ===\n"
                 + recent_history_brief
             )

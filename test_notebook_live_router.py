@@ -164,8 +164,9 @@ class NotebookLiveRouterTests(unittest.TestCase):
         self.assertIn("архитектуру сообщения до написания текста", joanna)
         self.assertIn("не являются самими данными Voice of Customer", joanna)
         self.assertIn("не пиши готовый пост", joanna)
-        self.assertIn("только как редактуру уже написанного черновика", ann)
+        self.assertIn("только как набор правил человеческого языка", ann)
         self.assertIn("не меняй факты", ann)
+        self.assertIn("Не предлагай вход, финал", ann)
         self.assertIn("не\nподменяй голос Дмитрия", ann)
 
     @patch("agents.notebook_live._query_one")

@@ -57,9 +57,10 @@ class EditorialPipelineV3Tests(unittest.TestCase):
     def test_one_pass_prompt_assigns_bounded_roles_and_single_author(self):
         prompt = telegram_team.ONE_PASS_EDITORIAL_PROMPT
         self.assertIn("единственный автор", prompt)
-        self.assertIn("SMM-06 даёт экспертную опору", prompt)
-        self.assertIn("Paddy Galloway предлагает только вход", prompt)
-        self.assertIn("Ann Handley помогает", prompt)
+        self.assertIn("SMM-06 даёт один экспертный тезис", prompt)
+        self.assertIn("Paddy Galloway предлагает три входа", prompt)
+        self.assertIn("Ann Handley даёт только правила живого языка", prompt)
+        self.assertIn("Смысловой preflight обязателен", prompt)
         self.assertIn("Напиши текст один раз", prompt)
         self.assertNotIn("blueprint", prompt.lower())
 
