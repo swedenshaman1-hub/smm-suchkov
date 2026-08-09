@@ -2718,7 +2718,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         action, draft_id = data.split(":", 1)
         target_status = "accepted" if action == "post_accept" else "rejected"
         try:
-            result, _record = editorial_history.decide(draft_id, chat_id, target_status)
+            result, record = editorial_history.decide(draft_id, chat_id, target_status)
         except editorial_history.EditorialStorageError:
             logger.exception("editorial_callback_failed action=%s draft_id=%s chat_id=%s", action, draft_id, chat_id)
             await query.edit_message_text("Хранилище временно недоступно. Нажми кнопку ещё раз позднее.")
@@ -2734,7 +2734,29 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         context.user_data["post_revision_count"] = 0
         _persist_session(chat_id, context.user_data)
-        if target_status == "accepted":
+        if result == "updated" and target_status == "accepted":
+            topic = record["topic"]
+            try:
+                memory_utils.register_published(
+                    topic,
+                    angle=(record.get("actual_fingerprint") or {}).get("entrance", ""),
+                    formats=["telegram_post"],
+                )
+            except Exception:
+                logger.exception(
+                    "editorial_antirepeat_registry_failed draft_id=%s chat_id=%s topic=%s action=%s",
+                    draft_id,
+                    chat_id,
+                    topic,
+                    action,
+                )
+            else:
+                logger.info(
+                    "editorial_antirepeat_registry_updated draft_id=%s chat_id=%s topic=%s",
+                    draft_id,
+                    chat_id,
+                    topic,
+                )
             await query.edit_message_text(
                 "✅ Текст принят и добавлен в редакционную историю. Следующий пост учтёт его форму и финал."
             )
