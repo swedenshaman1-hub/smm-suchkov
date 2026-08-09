@@ -46,6 +46,26 @@ class EditorialCallbackTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("Текст принят", query.edit_message_text.await_args.args[0])
 
+    async def test_accepted_without_entrance_registers_empty_angle(self):
+        update, context, _query = self._callback("post_accept")
+        record = {
+            "topic": "Тема без распознанного входа",
+            "actual_fingerprint": {},
+        }
+        with (
+            patch.object(telegram_bot, "_hydrate_session"),
+            patch.object(telegram_bot, "_persist_session"),
+            patch.object(telegram_bot.editorial_history, "decide", return_value=("updated", record)),
+            patch.object(telegram_bot.memory_utils, "register_published") as register_published,
+        ):
+            await telegram_bot.handle_button(update, context)
+
+        register_published.assert_called_once_with(
+            "Тема без распознанного входа",
+            angle="",
+            formats=["telegram_post"],
+        )
+
     async def test_rejected_updated_does_not_register_published(self):
         update, context, query = self._callback("post_reject")
         with (
