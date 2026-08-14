@@ -263,6 +263,66 @@ def semantic_preflight_instruction(result: dict) -> str:
     return "\n".join(lines)
 
 
+def architecture_preflight(profile: dict, history: list[dict]) -> dict:
+    """Expose recent structural combinations before the one-pass writer runs."""
+    recent = []
+    recent_content_architectures = []
+    for record in history[-5:]:
+        actual = record.get("actual") or {}
+        pair = (actual.get("entrance"), actual.get("ending"))
+        if all(pair) and pair not in recent:
+            recent.append(pair)
+        content_architecture = (record.get("planned") or {}).get("content_architecture")
+        if content_architecture and content_architecture not in recent_content_architectures:
+            recent_content_architectures.append(content_architecture)
+    planned_pair = (profile.get("entrance"), profile.get("ending"))
+    requested_content_architecture = profile.get("content_architecture", "")
+    alternative_content_architecture = profile.get("alternative_content_architecture", "")
+    repeats_requested = bool(
+        requested_content_architecture
+        and requested_content_architecture in recent_content_architectures[-3:]
+    )
+    current_content_architecture = requested_content_architecture
+    used_alternative = False
+    if (
+        repeats_requested
+        and alternative_content_architecture
+        and alternative_content_architecture not in recent_content_architectures[-3:]
+    ):
+        current_content_architecture = alternative_content_architecture
+        used_alternative = True
+    return {
+        "planned": planned_pair,
+        "recent_pairs": recent,
+        "repeats_recent": planned_pair in recent[-2:],
+        "content_architecture": current_content_architecture,
+        "recent_content_architectures": recent_content_architectures,
+        "repeats_content_architecture": repeats_requested and not used_alternative,
+        "used_alternative": used_alternative,
+    }
+
+
+def architecture_preflight_instruction(result: dict) -> str:
+    lines = [
+        "Не используй серийную схему «вопрос темы — два объяснения — рефрейм — риторический вопрос».",
+        "Не заканчивай вопросом, если выбран утвердительный финал.",
+    ]
+    recent = result.get("recent_pairs") or []
+    if recent:
+        rendered = ", ".join(f"{entrance}+{ending}" for entrance, ending in recent[-3:])
+        lines.append(f"Недавние сочетания входа и финала: {rendered}.")
+    if result.get("repeats_recent"):
+        lines.append("План пересекается с недавним: различай текст ходом аргумента, а не новой метафорой.")
+    content_architecture = result.get("content_architecture")
+    if content_architecture:
+        lines.append(f"Архитектура Joanna для этого поста: {content_architecture}.")
+    if result.get("used_alternative"):
+        lines.append("Основная архитектура повторялась, поэтому до написания автоматически выбрана альтернативная.")
+    elif result.get("repeats_content_architecture"):
+        lines.append("Эта архитектура Joanna уже была недавно. Не воспроизводи её; следуй плану входа и финала как альтернативному ходу.")
+    return "\n".join(lines)
+
+
 def fingerprint(text: str, planned: dict | None = None) -> dict:
     stripped = text.strip()
     first_paragraph = stripped.split("\n\n", 1)[0].strip()
@@ -379,27 +439,11 @@ def diagnose(text: str, actual: dict, history: list[dict] | None = None,
         )
         if recent_contrast:
             warnings.append(_warning("contrast_question_repeat", "Контрастный вопрос «не X, а Y» уже встречался среди двух предыдущих постов."))
-    if planned:
-        for axis in ("entrance", "viewpoint", "ending", "metaphor"):
-            planned_value = planned.get(axis)
-            actual_value = actual.get(axis)
-            matches = planned_value == actual_value
-            if axis == "ending" and planned_value == "open_question" and actual_value == "contrast_question":
-                matches = True
-            if axis == "ending" and actual_value == "statement_final" and planned_value in {"clear_conclusion", "quiet_observation"}:
-                matches = True
-            if axis == "viewpoint" and actual_value == "mixed":
-                scores = actual.get("viewpoint_counts") or {}
-                total = sum(scores.values())
-                matches = bool(total and scores.get(planned_value, 0) / total >= 0.50)
-            if not matches:
-                warnings.append(_warning(
-                    f"mismatch_{axis}",
-                    f"Ось «{axis}» не отражена в тексте: план={planned_value}, факт={actual_value}.",
-                    planned_value, actual_value,
-                ))
-        if actual.get("ending") == "contrast_question":
-            warnings.append(_warning("contrast_question", "Финал построен как контрастный вопрос «не X, а Y»."))
+    # The planned axes remain in the fingerprint for analytics. Do not surface
+    # noisy post-hoc mismatch warnings: the one-pass draft can no longer benefit
+    # from them, and they distracted from semantic defects.
+    if planned and actual.get("ending") == "contrast_question":
+        warnings.append(_warning("contrast_question", "Финал построен как контрастный вопрос «не X, а Y»."))
     if actual.get("metaphor") and any(r.get("actual", {}).get("metaphor") for r in history[-2:]):
         warnings.append(_warning("metaphor_repeat", "Метафора снова появилась после недавнего поста с метафорой."))
     return warnings

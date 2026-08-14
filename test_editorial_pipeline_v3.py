@@ -61,6 +61,7 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn("Paddy Galloway предлагает три входа", prompt)
         self.assertIn("Ann Handley даёт только правила живого языка", prompt)
         self.assertIn("Смысловой preflight обязателен", prompt)
+        self.assertIn("Архитектурный preflight обязателен", prompt)
         self.assertIn("Напиши текст один раз", prompt)
         self.assertNotIn("blueprint", prompt.lower())
 
@@ -69,7 +70,10 @@ class EditorialPipelineV3Tests(unittest.TestCase):
         self.assertIn("Не подменяй точность эффектной фразой", prompt)
         self.assertIn("ложные развилки", prompt)
         self.assertIn("крайними примерами", prompt)
-        self.assertIn("две правдоподобные трактовки", prompt)
+        self.assertIn("Не добавляй вторую трактовку автоматически", prompt)
+        self.assertIn("HYPOTHESIS", prompt)
+        self.assertIn("OBSERVATION", prompt)
+        self.assertIn("Не выдумывай сцены, случаи клиентов", prompt)
 
     @patch("agents.telegram_team.gemini_call")
     def test_message_map_is_built_before_blueprint_without_invented_voc(self, call):

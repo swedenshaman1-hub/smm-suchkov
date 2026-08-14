@@ -45,7 +45,7 @@ class EditorialHistoryTests(unittest.TestCase):
         self.assertEqual(actual["ending"], "contrast_question")
         self.assertTrue(actual["question_final"])
 
-    def test_first_person_axis_mismatch_creates_warning(self):
+    def test_first_person_axis_mismatch_is_analytics_only(self):
         planned = {
             "entrance": "observation", "ending": "clear_conclusion",
             "viewpoint": "author_first_person", "metaphor": False,
@@ -53,7 +53,8 @@ class EditorialHistoryTests(unittest.TestCase):
         text = "Иногда решение приходит не сразу. Со временем различие становится заметнее."
         actual = editorial_history.fingerprint(text, planned)
         warnings = editorial_history.diagnose(text, actual, history=[], planned=planned)
-        self.assertTrue(any(item.get("code") == "mismatch_viewpoint" for item in warnings))
+        self.assertFalse(any(item.get("code", "").startswith("mismatch_") for item in warnings))
+        self.assertFalse(actual["planned_match"]["viewpoint"])
 
     def test_author_first_person_marker_is_detected_outside_quotes(self):
         actual = editorial_history.fingerprint(
@@ -83,13 +84,33 @@ class EditorialHistoryTests(unittest.TestCase):
         actual = editorial_history.fingerprint(text)
         self.assertEqual(actual["ending"], "contrast_question")
 
-    def test_all_planned_axes_produce_structured_mismatches(self):
+    def test_all_planned_axes_are_stored_without_noisy_warnings(self):
         planned = {"entrance": "concrete_moment", "ending": "clear_conclusion",
                    "viewpoint": "author_first_person", "metaphor": True}
         text = "Иногда решение становится понятнее со временем. Что теперь изменилось?"
         actual = editorial_history.fingerprint(text, planned)
         codes = {item["code"] for item in editorial_history.diagnose(text, actual, [], planned)}
-        self.assertTrue({"mismatch_entrance", "mismatch_ending", "mismatch_viewpoint", "mismatch_metaphor"}.issubset(codes))
+        self.assertFalse(any(code.startswith("mismatch_") for code in codes))
+        self.assertFalse(all(actual["planned_match"].values()))
+
+    def test_architecture_preflight_exposes_recent_pairs(self):
+        history = [
+            {"actual": {"entrance": "short_question", "ending": "open_question"}},
+            {"actual": {"entrance": "direct_thesis", "ending": "clear_conclusion"},
+             "planned": {"content_architecture": "тезис и доказательство"}},
+        ]
+        profile = {"entrance": "direct_thesis", "ending": "clear_conclusion",
+                   "content_architecture": "тезис и доказательство",
+                   "alternative_content_architecture": "конкретная деталь и раскрытие"}
+        result = editorial_history.architecture_preflight(profile, history)
+        instruction = editorial_history.architecture_preflight_instruction(result)
+        self.assertTrue(result["repeats_recent"])
+        self.assertIn("вопрос темы — два объяснения", instruction)
+        self.assertIn("direct_thesis+clear_conclusion", instruction)
+        self.assertFalse(result["repeats_content_architecture"])
+        self.assertTrue(result["used_alternative"])
+        self.assertEqual(result["content_architecture"], "конкретная деталь и раскрытие")
+        self.assertIn("автоматически выбрана альтернативная", instruction)
 
     def test_declarative_claim_is_direct_thesis_and_soft_final_is_observation(self):
         actual = editorial_history.fingerprint(

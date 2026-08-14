@@ -495,10 +495,28 @@ async def _run_post_inner_v3(
                 )
                 or topic
             )
-            semantic_check = editorial_history.semantic_preflight(
-                candidate_thesis, recent_history
+            candidate_mechanism = editorial_history.extract_labeled_value(
+                contexts.message_strategy, ("МЕХАНИЗМ", "ЛОГИЧЕСКИЙ ХОД")
             )
-            planned_profile["semantic_thesis"] = candidate_thesis
+            semantic_material = " ".join(
+                part for part in (candidate_thesis, candidate_mechanism) if part
+            )
+            semantic_check = editorial_history.semantic_preflight(
+                semantic_material, recent_history
+            )
+            planned_profile["content_architecture"] = editorial_history.extract_labeled_value(
+                contexts.message_strategy, ("АРХИТЕКТУРА",)
+            )
+            planned_profile["alternative_content_architecture"] = editorial_history.extract_labeled_value(
+                contexts.message_strategy, ("АЛЬТЕРНАТИВНАЯ АРХИТЕКТУРА",)
+            )
+            architecture_check = editorial_history.architecture_preflight(
+                planned_profile, recent_history
+            )
+            planned_profile["content_architecture"] = architecture_check.get(
+                "content_architecture", planned_profile.get("content_architecture", "")
+            )
+            planned_profile["semantic_thesis"] = semantic_material
             planned_profile["semantic_terms"] = semantic_check.get("semantic_terms", [])
             editorial_context = (
                 "=== ДМИТРИЙ: ЭКСПЕРТИЗА И ГОЛОС ===\n"
@@ -513,6 +531,8 @@ async def _run_post_inner_v3(
                 + editorial_history.profile_instruction(planned_profile)
                 + "\n\n=== СМЫСЛОВОЙ PREFLIGHT ДО НАПИСАНИЯ ===\n"
                 + editorial_history.semantic_preflight_instruction(semantic_check)
+                + "\n\n=== АРХИТЕКТУРНЫЙ PREFLIGHT ДО НАПИСАНИЯ ===\n"
+                + editorial_history.architecture_preflight_instruction(architecture_check)
                 + "\n\n=== ЧЕГО НЕ ПОВТОРЯТЬ ИЗ НЕДАВНИХ ПРИНЯТЫХ ПОСТОВ ===\n"
                 + recent_history_brief
             )
